@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos Excel y resultados (pueden ser grandes)
+*.xlsx
+*.xls
+*.png
+*.jpg
+*.jpeg
+
+# Carpeta de resultados
+results/
+
+# Archivos temporales
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
