@@ -1,11 +1,13 @@
-
+#%%
 import random
 from dataclasses import dataclass
 import math
 import pandas as pd
 from typing import Dict, Tuple
+import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+import copy
 
 
 class circuito():
@@ -89,14 +91,26 @@ def flujos_globales(lista_equipos):
     return flujos_entrada, flujos_salida, flujos_salida_conc, flujos_internos
 
 
-def cargar_datos_equipos(path_excel):
+import numpy as np
+
+def cargar_datos_equipos(path_excel, sheet_name=None):
     """
     Carga los equipos y flujos desde el archivo de configuración.
+    
+    Args:
+        path_excel: Ruta al archivo Excel
+        sheet_name: Nombre de la hoja a leer. Si es None, lee la hoja principal (por defecto)
+    
     Retorna:
         lista_equipos: diccionario con la info de cada equipo por simulación
         flujos: diccionario global de flujos (mismo para todas las simulaciones)
     """
-    df = pd.read_excel(path_excel)
+    if sheet_name is None:
+        df = pd.read_excel(path_excel)
+        print(f"Cargando datos desde hoja principal de: {path_excel}")
+    else:
+        df = pd.read_excel(path_excel, sheet_name=sheet_name)
+        print(f"Cargando datos desde hoja '{sheet_name}' de: {path_excel}")
     num_simulaciones = df["Simulacion"].nunique()
     print(f"Total de simulaciones: {num_simulaciones}")
 
@@ -201,125 +215,213 @@ def correr_simulacion_normal(lista_equipos, flujos):
     return df_resultados
 
 def correr_simulacion_montecarlo(
-    lista_equipos, 
-    flujos,
-    archivo_mc, 
-    equipos_objetivo,
-    max_iter=200,
+    archivo_base,
+    equipos_objetivo=None,
     semilla_inicial_flujos=None,
+    n_sim=1_000_000,
+    sheet_name=None
 ):
     """
-    Corre una simulación de Monte Carlo sobre los equipos indicados, 
-    según el archivo Monte Carlo proporcionado.
+    Ejecuta una simulación Monte Carlo para CADA 'simulación' encontrada en la hoja base.
     
-    lista_equipos: dict, equipos base.
-    flujos: dict, flujos base.
-    archivo_mc: ruta excel con parámetros para MC.
-    equipos_objetivo: lista de strings, nombres de equipos objetivo para MC.
-    max_iter: iteraciones MC.
-    semilla_inicial_flujos: dict opcional con semillas para flujos (masa, cut).
+    Para cada simulación:
+        - Se cargan los equipos y flujos UNA VEZ (fuera del loop MC)
+        - Para cada iteración de Monte Carlo:
+            - Se hace copia profunda de equipos y flujos
+            - Se sortean split_factor aleatorios SOLO para equipos_objetivo
+            - Se calculan los flujos/resultados
+        - Se guardan los resultados en Excel separados por hoja según simulación
+    
+    Args:
+        archivo_base: Ruta al archivo Excel con las simulaciones
+        equipos_objetivo: Lista de nombres de equipos a modificar con split factors aleatorios
+        semilla_inicial_flujos: Dict con valores iniciales para flujos {id_flujo: {'masa': val, 'cut': val}}
+        n_sim: Número de iteraciones Monte Carlo
+        sheet_name: Nombre de la hoja Excel a leer. Si es None, lee la hoja principal (por defecto)
+    
+    Returns:
+        Dict donde cada llave es el id de simulación y el valor es un DataFrame con resultados MC
     """
-    # Leer parámetros MC
-    df_mc = pd.read_excel(archivo_mc)
-    resultados_mc = []
-    fe, fs, fs_conc, fi = flujos_globales(lista_equipos[1])
+    import tqdm
+    import os
+    
+    # Cargar equipos y flujos UNA VEZ para todas las simulaciones
+    lista_equipos_base, flujos_base = cargar_datos_equipos(archivo_base, sheet_name=sheet_name)
+    simulaciones_ids = list(lista_equipos_base.keys())
+    
+    # Prepara dict salida
+    results_por_sim = {}
 
-    # Set semilla inicial si corresponde
-    if semilla_inicial_flujos is not None:
-        for k, vals in semilla_inicial_flujos.items():
-            flujos[k].masa = vals['masa']
-            flujos[k].cut = vals['cut']
+    if equipos_objetivo is None:
+        equipos_objetivo = ["Jameson 1"]  # Valor por defecto
 
-    for iteracion in range(max_iter):
-        # Sobrescribe los split_factor de los equipos según la fila actual del archivo montecarlo
-        idx_mc = iteracion % len(df_mc)
-        row_mc = df_mc.iloc[idx_mc]
-        for sim in lista_equipos:
-            for nombre_equipo, equipo in lista_equipos[sim].items():
-                if equipo.name in equipos_objetivo:
-                    equipo.split_factor = [row_mc['sp masa'], row_mc['sp cuf']]
+    # Procesar cada simulación
+    for sim_id in simulaciones_ids:
+        print(f"\n{'='*60}")
+        print(f"Iniciando Monte Carlo para Simulación {sim_id}")
+        print(f"Equipos objetivo: {equipos_objetivo}")
+        print(f"Iteraciones: {n_sim:,}")
+        print(f"{'='*60}")
+        
+        resultados_mc = []
+        
+        # Obtener equipos base para esta simulación (fuera del loop MC)
+        equipos_base = lista_equipos_base[sim_id]
+        
+        # Calcular flujos globales una vez (no cambian entre iteraciones MC)
+        fe, fs, fs_conc, fi = flujos_globales(equipos_base)
+        
+        # Loop de Monte Carlo
+        for sim_number in tqdm.trange(n_sim, desc=f"MC Sim {sim_id}", leave=False):
+            try:
+                # Hacer copia profunda de equipos y flujos para esta iteración
+                equipos = copy.deepcopy(equipos_base)
+                flujos = copy.deepcopy(flujos_base)
+                
+                # Aplicar semilla inicial si corresponde
+                if semilla_inicial_flujos is not None:
+                    for k, vals in semilla_inicial_flujos.items():
+                        if k in flujos:
+                            flujos[k].masa = vals['masa']
+                            flujos[k].cut = vals['cut']
+                
+                # Modificar split factors SOLO para equipos_objetivo
+                for eq_name, eq in equipos.items():
+                    if eq.name in equipos_objetivo:
+                        s1 = np.random.uniform(0.1, 0.85)
+                        s2 = np.random.uniform(0.1, 0.85)
+                        eq.split_factor = [s1, s2]
+                
+                # Calcular todos los equipos de esta simulación
+                for nombre, equipo in equipos.items():
+                    equipo.calcula(flujos)
+                
+                # Calcular resultados principales
+                try:
+                    # Verificar que el flujo base existe
+                    if 4 not in flujos or flujos[4].cuf == 0:
+                        continue
                     
-        # Calcular normalmente
-        for sim in lista_equipos:
-            for nombre, equipo in lista_equipos[sim].items():
-                equipo.calcula(flujos)
+                    Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
+                    MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
+                    RazonEnriquecimiento = Recuperacion / MassPull if MassPull != 0 else 0
+                    Ley_Conc_Final = (
+                        sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc]) * 100
+                        if sum([flujos[i].masa for i in fs_conc]) != 0 else 0
+                    )
+                except (ZeroDivisionError, KeyError):
+                    continue
+                
+                # Recopilar información de split factors para equipos objetivo
+                split_info = {}
+                for eq_name, eq in equipos.items():
+                    if eq.name in equipos_objetivo:
+                        split_info[f"{eq.name}_split_masa"] = eq.split_factor[0]
+                        split_info[f"{eq.name}_split_cuf"] = eq.split_factor[1]
+                
+                # Crear fila de resultados
+                fila = {
+                    'MonteCarlo_Iter': sim_number,
+                    'Recuperacion': Recuperacion,
+                    'MassPull': MassPull,
+                    'RazonEnriquecimiento': RazonEnriquecimiento,
+                    'Ley_Conc_Final': Ley_Conc_Final,
+                    **split_info,
+                    **{f'Flujo {k} Masa': v.masa for k, v in flujos.items()},
+                    **{f'Flujo {k} Cut': v.cut for k, v in flujos.items()},
+                }
+                resultados_mc.append(fila)
+                
+            except Exception as e:
+                # Silenciar errores para no interrumpir el proceso
+                continue
+        
+        # Crear DataFrame con resultados de esta simulación
+        df_resultados_mc = pd.DataFrame(resultados_mc)
+        results_por_sim[sim_id] = df_resultados_mc
+        
+        print(f"Simulación {sim_id} completada: {len(resultados_mc):,} iteraciones exitosas")
 
-            Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
-            MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
-            RazonEnriquecimiento = Recuperacion / MassPull if MassPull != 0 else 0
-            Ley_Conc_Final = (
-                sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc]) * 100 
-                if sum([flujos[i].masa for i in fs_conc]) != 0 else 0
-            )
-            fila = {
-                'Iteracion_MC': iteracion + 1,
-                'Simulacion': sim,
-                'Recuperacion': Recuperacion,
-                'MassPull': MassPull,
-                'RazonEnriquecimiento': RazonEnriquecimiento,
-                'Ley_Conc_Final': Ley_Conc_Final,
-                **{f'Flujo {k} Masa': v.masa for k, v in flujos.items()},
-                **{f'Flujo {k} Cut': v.cut for k, v in flujos.items()},
-            }
-            resultados_mc.append(fila)
+    # Guardar resultados en Excel separados por hoja según simulación
+    os.makedirs('results', exist_ok=True)
+    archivo_salida = os.path.join('results', 'results_montecarlo.xlsx')
+    
+    with pd.ExcelWriter(archivo_salida) as writer:
+        for sim_id, df in results_por_sim.items():
+            df.to_excel(writer, sheet_name=f'Simulacion_{sim_id}', index=False)
+    
+    print(f"\n{'='*60}")
+    print(f"Resultados guardados en: {archivo_salida}")
+    print(f"{'='*60}")
 
-    df_resultados_mc = pd.DataFrame(resultados_mc)
-    return df_resultados_mc
+    return results_por_sim
 
 # === MAIN ===
 def main():
+    """
+    Ejecuta la simulación y retorna todas las salidas relevantes:
+    - lista_equipos: diccionario de equipos para cada simulación
+    - flujos: diccionario de flujos
+    - df_resultados: DataFrame con resultados principales de simulación normal
+    - df_resultados_mc: Diccionario con resultados del Monte Carlo por simulación {sim_id: DataFrame}
+    """
     # 1. Cargar equipos y flujos desde archivo base
     lista_equipos, flujos = cargar_datos_equipos('../Simulacion_caso_base.xlsx')
 
     # 2. Simulación "normal"
     df_resultados = correr_simulacion_normal(lista_equipos, flujos)
 
-    # 3. Simulación Monte Carlo (descomentar y ajustar a tus necesidades):
-    # archivo_mc = "ruta_a_tu_archivo_MC.xlsx"
-    # equipos_mc = ["Celda1", "Celda2"] # Nombres exactos a simular en MC
-    # semilla = {4: {'masa': 24.515, 'cut': 2.40}}
-    # df_resultados_mc = correr_simulacion_montecarlo(lista_equipos, flujos, archivo_mc, equipos_mc, max_iter=200, semilla_inicial_flujos=semilla)
+    # 3. Simulación Monte Carlo (1e6 ejecuciones, split_factor aleatorio para equipos deseados)
+    archivo_base = '../Simulacion_caso_base.xlsx'
+    semilla = {4: {'masa': 24.515, 'cut': 2.40}}
+    equipos_a_cambiar = ["Jameson 1"] # Modificar según el problema
+    hoja_mc = "Sim MC"  # Nombre de la hoja para Monte Carlo (None para usar hoja principal)
+    df_resultados_mc = correr_simulacion_montecarlo(
+        archivo_base=archivo_base,
+        equipos_objetivo=equipos_a_cambiar,
+        semilla_inicial_flujos=semilla,
+        n_sim=1000000,
+        sheet_name=hoja_mc
+    )
 
-    # 4. Guardar resultados
+    # 4. Guardar resultados normales
     import os
     os.makedirs('results', exist_ok=True)
     with pd.ExcelWriter(os.path.join('results', 'results_caso_4.xlsx')) as writer:
         for sim_id in df_resultados['Simulacion'].unique():
             df_sim = df_resultados[df_resultados['Simulacion'] == sim_id]
             df_sim.to_excel(writer, sheet_name=f'Simulacion_{sim_id}', index=False)
-    # Guardar resultado montecarlo si existe
-    # if 'df_resultados_mc' in locals():
-    #     df_resultados_mc.to_excel(os.path.join('results', 'results_montecarlo.xlsx'), index=False)
+    
+    # Los resultados de Monte Carlo ya se guardan dentro de correr_simulacion_montecarlo
+    # No es necesario guardarlos aquí nuevamente
 
-    # Mostrar resultados principales
-    from IPython.display import display
-    display(df_resultados.head())
-    # if 'df_resultados_mc' in locals():
-    #     display(df_resultados_mc.head())
+    # Mostrar resultados principales (opcional si usas Jupyter)
+    try:
+        from IPython.display import display
+        display(df_resultados.head())
+        if df_resultados_mc is not None:
+            # df_resultados_mc es un diccionario, mostrar el primer DataFrame
+            if df_resultados_mc:
+                first_sim_id = list(df_resultados_mc.keys())[0]
+                display(df_resultados_mc[first_sim_id].head())
+    except ImportError:
+        print(df_resultados.head())
+        if df_resultados_mc is not None:
+            # df_resultados_mc es un diccionario, mostrar el primer DataFrame
+            if df_resultados_mc:
+                first_sim_id = list(df_resultados_mc.keys())[0]
+                print(f"\nResultados MC - Simulación {first_sim_id}:")
+                print(df_resultados_mc[first_sim_id].head())
 
+    # Retornar todas las salidas solicitadas
+    return lista_equipos, flujos, df_resultados, df_resultados_mc
+    
 # Ejecutar si es programa principal
+
 if __name__ == "__main__":
-    main()
-
-
-
-# Si quieres guardar el DataFrame a un Excel:
-import os
-
-# Crear la carpeta 'results' si no existe
-os.makedirs('results', exist_ok=True)
-with pd.ExcelWriter(os.path.join('results', 'results_caso_4.xlsx')) as writer:
-    for sim_id in df_resultados['Simulacion'].unique():
-        df_sim = df_resultados[df_resultados['Simulacion'] == sim_id]
-        df_sim.to_excel(writer, sheet_name=f'Simulacion_{sim_id}', index=False)
-
-# Si quieres ver los primeros resultados:
-display(df_resultados.head())
+    lista_equipos, flujos, df_resultados, df_resultados_mc = main()
 
 #%%
-import seaborn as sns
-import matplotlib.pyplot as plt
-
 def graficar_resultados(df, rec_min=None, rec_max=None, ley_min=None, ley_max=None, solo_flujo9_cut=False):
     """
     Filtra el DataFrame según los parámetros ingresados. 
