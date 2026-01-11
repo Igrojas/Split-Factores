@@ -1,9 +1,11 @@
-#%%
+
 import random
 from dataclasses import dataclass
 import math
 import pandas as pd
 from typing import Dict, Tuple
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 class circuito():
@@ -87,134 +89,229 @@ def flujos_globales(lista_equipos):
     return flujos_entrada, flujos_salida, flujos_salida_conc, flujos_internos
 
 
+def cargar_datos_equipos(path_excel):
+    """
+    Carga los equipos y flujos desde el archivo de configuración.
+    Retorna:
+        lista_equipos: diccionario con la info de cada equipo por simulación
+        flujos: diccionario global de flujos (mismo para todas las simulaciones)
+    """
+    df = pd.read_excel(path_excel)
+    num_simulaciones = df["Simulacion"].nunique()
+    print(f"Total de simulaciones: {num_simulaciones}")
 
-df = pd.read_excel('Simulacion_caso_base.xlsx')
-# df = df[df["Simulacion"] == 4]
+    lista_equipos = {}
+    flujos = {}
+    for sim in range(1, num_simulaciones + 1):
+        print(f"{'='*50}")
+        print(f"Simulación: {sim}")
+        df_sim = df[df["Simulacion"] == sim]
 
-num_simulaciones=df["Simulacion"].nunique()
-print(f"Total de simulaciones: {num_simulaciones}")
+        lista_equipos[sim] = {}
+        for idx, row in df_sim.iterrows():
 
-lista_equipos={}
-flujos={}
-for sim in range(1, num_simulaciones+1):
+            # Crear equipo según tipo
+            if row["tipo"] == "celda":
+                equipo = celda()
+            elif row["tipo"] == "suma":
+                equipo = suma()
+
+            # Definir flujos de entrada y salida
+            columnas_flujos = list(df.columns)
+            idx_sp_cuf = columnas_flujos.index("sp cuf")
+            columnas_flujos = columnas_flujos[idx_sp_cuf + 1 :]
+
+            equipo.flow_in = []
+            for col in columnas_flujos:
+                if row[col] == 1:
+                    flujos[col] = flujo(col)
+                    flujos[col].name = f"Alim {row['Equipo']}"
+                    equipo.flow_in.append(col)
+
+            equipo.flow_out = []
+            out_count = 0
+            for col in columnas_flujos:
+                if row[col] == -1:
+                    flujos[col] = flujo(col)
+                    if out_count == 0:
+                        flujos[col].name = f"Conc {row['Equipo']}"
+                    elif out_count == 1:
+                        flujos[col].name = f"Rel {row['Equipo']}"
+                    equipo.flow_out.append(col)
+                    out_count += 1
+
+            equipo.name = row["Equipo"]
+            equipo.split_factor = [row["sp masa"], row["sp cuf"]]
+            lista_equipos[sim][row["Equipo"]] = equipo
+
     print(f"{'='*50}")
-    print(f"Simulación: {sim}")
-    df_sim = df[df["Simulacion"] == sim]
-
-    lista_equipos[sim]={}
-    for idx, row in df_sim.iterrows():
-        # print(row["tipo"])
-
-        if row["tipo"] == "celda":
-            equipo=celda()
-        elif row["tipo"] == "suma":
-            equipo=suma()
-
-        # Solo considerar las columnas después de 'sp cuf'
-        columnas_flujos = list(df.columns)
-        idx_sp_cuf = columnas_flujos.index("sp cuf")
-        columnas_flujos = columnas_flujos[idx_sp_cuf+1:]
-
-        # Para los flujos de entrada (=1), nómbralos como 'Alim equipo'
-        equipo.flow_in = []
-        for col in columnas_flujos:
-            if row[col] == 1:
-                # Asumimos que nombres tipo "Alim Equipo"
-                flujos[col] = flujo(col)
-                flujos[col].name = f"Alim {row['Equipo']}"
-                equipo.flow_in.append(col)
-        # Para los flujos de salida (= -1), el primero es Conc, el segundo es Rel
-        equipo.flow_out = []
-        out_count = 0
-        for col in columnas_flujos:
-            if row[col] == -1:
-                flujos[col] = flujo(col)
-                if out_count == 0:
-                    flujos[col].name = f"Conc {row['Equipo']}"
-                elif out_count == 1:
-                    flujos[col].name = f"Rel {row['Equipo']}"
-                equipo.flow_out.append(col)
-                out_count += 1
-        
-        # Aca agregamos todos los datos, nombre, flujos, split factor.
-        equipo.name = row["Equipo"]
-        equipo.split_factor = [row["sp masa"], row["sp cuf"]]
-        lista_equipos[sim][row["Equipo"]] = equipo
-
-print(f"{'='*50}")
-# print(lista_equipos)
-for sim in lista_equipos:
-    print(f"{'='*50}")
-    print(f"Simulación: {sim}")
-    print(f"{'='*50}")
-    for equipo in lista_equipos[sim].items():
-
-        # print(f"Equipo: {equipo[0]}")
-        print(f"Nombre: {equipo[1].name}")
-        print(f"Split Factor: {equipo[1].split_factor}")
-        print(f"Flow In: {equipo[1].flow_in}")
-        print(f"Flow Out: {equipo[1].flow_out}")
-
-fe, fs, fs_conc, fi = flujos_globales(lista_equipos[1])
-
-print(fs_conc)
-#%%
-import pandas as pd
-import openpyxl
-
-df_alim = pd.read_excel('Alimentacion_caso_base.xlsx',sheet_name="Alim")
-
-flujos[4].name='Alim. 1ra Limpieza'
-flujos[4].masa= 24.515
-flujos[4].cut= 3.63
-Max_iter= 100
-#%%
-
-iter_mc = 100000
-
-# Crear lista para almacenar resultados de cada iteración
-resultados = []
-for i in range(iter_mc):
     for sim in lista_equipos:
-        for nombre, equipo in lista_equipos[sim].items():
-            equipo.calcula(flujos)
+        print(f"{'='*50}")
+        print(f"Simulación: {sim}")
+        print(f"{'='*50}")
+        for equipo in lista_equipos[sim].items():
+            print(f"Nombre: {equipo[1].name}")
+            print(f"Split Factor: {equipo[1].split_factor}")
+            print(f"Flow In: {equipo[1].flow_in}")
+            print(f"Flow Out: {equipo[1].flow_out}")
 
-        Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
-        MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
-        RazonEnriquecimiento = Recuperacion / MassPull
-        Ley_Conc_Final = sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc])*100
+    return lista_equipos, flujos
 
-        # Guardamos split factors y resultados en cada fila
-        fila = {
-            'sp_Jameson_1_masa': sp_jms_1[0],
-            'sp_Jameson_1_cuf': sp_jms_1[1],
-            'sp_Scavenger_masa': sp_scv[0],
-            'sp_Scavenger_cuf': sp_scv[1],
-            'sp_Cl_Scavenger_masa': sp_cl_scv[0],
-            'sp_Cl_Scavenger_cuf': sp_cl_scv[1],
-            'er_jameson_1': sp_jms_1[1]/sp_jms_1[0],
-            'er_scavenger': sp_scv[1]/sp_scv[0],
-            'er_cl_scavenger': sp_cl_scv[1]/sp_cl_scv[0],
-            'Recuperacion': Recuperacion,
-            'MassPull': MassPull,
-            'RazonEnriquecimiento': RazonEnriquecimiento,
-            'Ley_Conc_Final': Ley_Conc_Final,
-            # Generar automáticamente los resultados para todos los flujos presentes
-            **{f'Flujo {k} Masa': v.masa for k,v in flujos.items()},
-            **{f'Flujo {k} Cut': v.cut for k,v in flujos.items()},
+def correr_simulacion_normal(lista_equipos, flujos):
+    """
+    Corre la simulación normal con los equipos y flujos entregados,
+    guarda los resultados y los retorna como dataframe.
+    """
+    # Identificar flujos globales internamente
+    fe, fs, fs_conc, fi = flujos_globales(lista_equipos[1])
+    print(fs_conc)
 
-        }
-        resultados.append(fila)
+    # (Ajusta aquí la semilla inicial "manual" de masivo/flujos según corresponda a tus datos)
+    flujos[4].name = 'Alim. 1ra Limpieza'
+    flujos[4].masa = 24.515
+    flujos[4].cut = 2.40
+    iter_sim = 1
 
-# Convertimos la lista de resultados a un DataFrame de pandas
-df_resultados = pd.DataFrame(resultados)
+    resultados = []
+    for i in range(iter_sim):
+        for sim in lista_equipos:
+            for nombre, equipo in lista_equipos[sim].items():
+                equipo.calcula(flujos)
+
+            Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
+            MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
+            RazonEnriquecimiento = Recuperacion / MassPull if MassPull != 0 else 0
+            Ley_Conc_Final = (
+                sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc]) * 100 
+                if sum([flujos[i].masa for i in fs_conc]) != 0 else 0
+            )
+
+            fila = {
+                'Simulacion': sim,
+                'Recuperacion': Recuperacion,
+                'MassPull': MassPull,
+                'RazonEnriquecimiento': RazonEnriquecimiento,
+                'Ley_Conc_Final': Ley_Conc_Final,
+                **{f'Flujo {k} Masa': v.masa for k, v in flujos.items()},
+                **{f'Flujo {k} Cut': v.cut for k, v in flujos.items()},
+            }
+            resultados.append(fila)
+
+    df_resultados = pd.DataFrame(resultados)
+    return df_resultados
+
+def correr_simulacion_montecarlo(
+    lista_equipos, 
+    flujos,
+    archivo_mc, 
+    equipos_objetivo,
+    max_iter=200,
+    semilla_inicial_flujos=None,
+):
+    """
+    Corre una simulación de Monte Carlo sobre los equipos indicados, 
+    según el archivo Monte Carlo proporcionado.
+    
+    lista_equipos: dict, equipos base.
+    flujos: dict, flujos base.
+    archivo_mc: ruta excel con parámetros para MC.
+    equipos_objetivo: lista de strings, nombres de equipos objetivo para MC.
+    max_iter: iteraciones MC.
+    semilla_inicial_flujos: dict opcional con semillas para flujos (masa, cut).
+    """
+    # Leer parámetros MC
+    df_mc = pd.read_excel(archivo_mc)
+    resultados_mc = []
+    fe, fs, fs_conc, fi = flujos_globales(lista_equipos[1])
+
+    # Set semilla inicial si corresponde
+    if semilla_inicial_flujos is not None:
+        for k, vals in semilla_inicial_flujos.items():
+            flujos[k].masa = vals['masa']
+            flujos[k].cut = vals['cut']
+
+    for iteracion in range(max_iter):
+        # Sobrescribe los split_factor de los equipos según la fila actual del archivo montecarlo
+        idx_mc = iteracion % len(df_mc)
+        row_mc = df_mc.iloc[idx_mc]
+        for sim in lista_equipos:
+            for nombre_equipo, equipo in lista_equipos[sim].items():
+                if equipo.name in equipos_objetivo:
+                    equipo.split_factor = [row_mc['sp masa'], row_mc['sp cuf']]
+                    
+        # Calcular normalmente
+        for sim in lista_equipos:
+            for nombre, equipo in lista_equipos[sim].items():
+                equipo.calcula(flujos)
+
+            Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
+            MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
+            RazonEnriquecimiento = Recuperacion / MassPull if MassPull != 0 else 0
+            Ley_Conc_Final = (
+                sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc]) * 100 
+                if sum([flujos[i].masa for i in fs_conc]) != 0 else 0
+            )
+            fila = {
+                'Iteracion_MC': iteracion + 1,
+                'Simulacion': sim,
+                'Recuperacion': Recuperacion,
+                'MassPull': MassPull,
+                'RazonEnriquecimiento': RazonEnriquecimiento,
+                'Ley_Conc_Final': Ley_Conc_Final,
+                **{f'Flujo {k} Masa': v.masa for k, v in flujos.items()},
+                **{f'Flujo {k} Cut': v.cut for k, v in flujos.items()},
+            }
+            resultados_mc.append(fila)
+
+    df_resultados_mc = pd.DataFrame(resultados_mc)
+    return df_resultados_mc
+
+# === MAIN ===
+def main():
+    # 1. Cargar equipos y flujos desde archivo base
+    lista_equipos, flujos = cargar_datos_equipos('../Simulacion_caso_base.xlsx')
+
+    # 2. Simulación "normal"
+    df_resultados = correr_simulacion_normal(lista_equipos, flujos)
+
+    # 3. Simulación Monte Carlo (descomentar y ajustar a tus necesidades):
+    # archivo_mc = "ruta_a_tu_archivo_MC.xlsx"
+    # equipos_mc = ["Celda1", "Celda2"] # Nombres exactos a simular en MC
+    # semilla = {4: {'masa': 24.515, 'cut': 2.40}}
+    # df_resultados_mc = correr_simulacion_montecarlo(lista_equipos, flujos, archivo_mc, equipos_mc, max_iter=200, semilla_inicial_flujos=semilla)
+
+    # 4. Guardar resultados
+    import os
+    os.makedirs('results', exist_ok=True)
+    with pd.ExcelWriter(os.path.join('results', 'results_caso_4.xlsx')) as writer:
+        for sim_id in df_resultados['Simulacion'].unique():
+            df_sim = df_resultados[df_resultados['Simulacion'] == sim_id]
+            df_sim.to_excel(writer, sheet_name=f'Simulacion_{sim_id}', index=False)
+    # Guardar resultado montecarlo si existe
+    # if 'df_resultados_mc' in locals():
+    #     df_resultados_mc.to_excel(os.path.join('results', 'results_montecarlo.xlsx'), index=False)
+
+    # Mostrar resultados principales
+    from IPython.display import display
+    display(df_resultados.head())
+    # if 'df_resultados_mc' in locals():
+    #     display(df_resultados_mc.head())
+
+# Ejecutar si es programa principal
+if __name__ == "__main__":
+    main()
+
+
 
 # Si quieres guardar el DataFrame a un Excel:
 import os
 
 # Crear la carpeta 'results' si no existe
 os.makedirs('results', exist_ok=True)
-df_resultados.to_excel(os.path.join('results', 'results_caso_4.xlsx'), index=False)
+with pd.ExcelWriter(os.path.join('results', 'results_caso_4.xlsx')) as writer:
+    for sim_id in df_resultados['Simulacion'].unique():
+        df_sim = df_resultados[df_resultados['Simulacion'] == sim_id]
+        df_sim.to_excel(writer, sheet_name=f'Simulacion_{sim_id}', index=False)
 
 # Si quieres ver los primeros resultados:
 display(df_resultados.head())
@@ -236,12 +333,8 @@ def graficar_resultados(df, rec_min=None, rec_max=None, ley_min=None, ley_max=No
     # Filtro FIJO: todos 'Flujo X Cut' < 30
     cut_cols = [col for col in df_filtrado.columns if col.startswith('Flujo') and col.endswith('Cut')]
     for col in cut_cols:
-        df_filtrado = df_filtrado[df_filtrado[col] < 30]
+        df_filtrado = df_filtrado[df_filtrado[col] < 27]
 
-    # También filtra todas las er (razón de enriquecimiento) mayores a 7
-    df_filtrado = df_filtrado[df_filtrado['er_jameson_1'] <= 8]
-    # df_filtrado = df_filtrado[df_filtrado['er_scavenger'] <= 2]
-    # df_filtrado = df_filtrado[df_filtrado['er_cl_scavenger'] <= 4.8]
     # Filtros variables
     if rec_min is not None:
         df_filtrado = df_filtrado[df_filtrado['Recuperacion'] >= rec_min]
@@ -324,3 +417,100 @@ def guardar_resultados_avanzado(df_filtrado, archivo='results/results_caso_4_fil
 
 guardar_resultados_avanzado(df_filtrado)
 # %%
+
+file_test_dil = '../Test Dilucion.xlsx'
+df_test_dil = pd.read_excel(file_test_dil)
+
+# Solo id 5 para test de dilución
+df_test_id5 = df_test_dil[df_test_dil['id'] == 5]
+
+# Elimina fila(s) donde la recuperación es 100 (asumiendo columna Recuperación, Cu%)
+if 'Recuperación, Cu%' in df_test_id5.columns:
+    df_test_id5 = df_test_id5[df_test_id5['Recuperación, Cu%'] != 100]
+# Crear la figura y los ejes
+fig, ax = plt.subplots(figsize=(8,6))
+
+# Graficar TODOS los puntos en una sola gráfica:
+# 1. Resultados de simulación (nube Monte Carlo) con etiqueta según columna 'Simulacion'
+for idx, row in df_resultados.iloc[:2].iterrows():
+    x = int(round(row['Recuperacion']))
+    y = int(round(row['Ley_Conc_Final']))
+    label = f"Sim {row['Simulacion']}"  # Etiqueta para cada punto
+    ax.scatter(
+        x, 
+        y,
+        color='black', 
+        alpha=1, 
+        edgecolor='w', 
+        s=500,
+        marker='*',
+        #label=label
+    )
+    # Mostramos la etiqueta un poco más arriba del punto en la gráfica
+    ax.text(
+        x, 
+        y + 1,  # Solo enteros, desplazamiento de 1 entero hacia arriba
+        label, 
+        fontsize=10, 
+        ha='center', 
+        va='bottom',  # Anclar la parte inferior del texto para que quede "sobre" el punto
+        fontweight='bold',
+        color='black',
+        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.2')
+    )
+# Agrega un punto verde estrella en (94.41, 18.36) convertido a enteros
+ax.scatter(
+    int(round(94.41)),
+    int(round(18.36)),
+    color='green',
+    edgecolor='w',
+    s=500,
+    marker='*',
+    label="Pilotaje Caso Base"
+)
+
+# 2. Resultados de test de dilución (id 5) como línea, pero SOBRE LA MISMA GRÁFICA
+# Nos aseguramos de convertir los ejes de df_test_id5 a enteros antes de graficar
+df_test_id5_entero = df_test_id5.copy()
+df_test_id5_entero['Recuperación, Cu%'] = df_test_id5_entero['Recuperación, Cu%'].round().astype(int)
+df_test_id5_entero['Ley acumulada, Cu%'] = df_test_id5_entero['Ley acumulada, Cu%'].round().astype(int)
+
+sns.lineplot(
+    x='Recuperación, Cu%', 
+    y='Ley acumulada, Cu%', 
+    data=df_test_id5_entero,
+    color='royalblue',
+    alpha=1,
+    marker='D',
+    markersize=8,
+    linestyle='--',
+    linewidth=2,
+    label=f"Test de Dilución Ley Alimentación = {int(round(df_test_id5['Ley Cu'].iloc[0]))}",
+    zorder=10,
+    ax=ax
+)
+
+# Modificar los ticks de x y y según pauta: x de 5 en 5 hasta 100, y de 2 en 2
+# Eje x: de mínimo múltiplo de 5 mayor o igual al límite inferior, hasta 100 de 5 en 5
+x_start = max(0, 5 * int(np.floor(ax.get_xlim()[0] / 5)))
+x_end = 100
+xticks = np.arange(x_start, x_end + 1, 5)
+ax.set_xticks(xticks)
+ax.set_xlim(x_start, x_end)
+
+# Eje y: de mínimo múltiplo de 2 mayor o igual al límite inferior, hasta el mayor múltiplo de 2 mayor o igual al límite superior
+ylim = ax.get_ylim()
+y_start = 2 * int(np.floor(ylim[0] / 2))
+y_end = 2 * int(np.ceil(ylim[1] / 2))
+yticks = np.arange(y_start, y_end + 1, 2)
+ax.set_yticks(yticks)
+ax.set_ylim(y_start, y_end)
+
+ax.set_xlabel('Recuperación (%)', fontsize=12)
+ax.set_ylabel('Ley de Conc. Final (%)', fontsize=12)
+ax.set_title('Nube de Simulación y Test de Dilución', fontsize=14)
+ax.grid(True, linestyle='--', alpha=0.6)
+ax.legend()
+plt.tight_layout()
+plt.show()
+#%%
