@@ -66,7 +66,6 @@ class flujo():
 
 # =============================================================================
 
-
 def flujos_globales(lista_equipos):
 
     fin = set()
@@ -88,8 +87,6 @@ def flujos_globales(lista_equipos):
 
 # =============================================================================
 
-
-
 df = pd.read_excel('Simulaciones_v2.xlsx')
 df = df[df["Simulacion"] == 1]
 
@@ -101,7 +98,7 @@ flujos={}
 for sim in range(1, num_simulaciones+1):
     print(f"{'='*50}")
     print(f"Simulación: {sim}")
-    df_sim = df[df["Simulacion"] == sim]
+    df_sim = df[df["Simulacion"] == 1]
 
     lista_equipos[sim]={}
     for idx, row in df_sim.iterrows():
@@ -178,10 +175,10 @@ resultados = []
 for i in range(iter_mc):
     for sim in lista_equipos:
 
-        sp_jms_1    =  [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.95), 2)]
-        sp_jms_2    =  [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.95), 2)]
-        sp_scv    =  [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.95), 2)]
-        sp_cl_scv =  [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.95), 2)]
+        sp_jms_1    =  [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.80), 2)]
+        sp_jms_2    =  [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.80), 2)]
+        sp_scv    =  [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.89), 2)]
+        sp_cl_scv =  [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.70), 2)]
 
         lista_equipos[1]["Jameson 1"].split_factor = sp_jms_1
         lista_equipos[1]["Jameson 2"].split_factor = sp_jms_2
@@ -287,7 +284,7 @@ def graficar_resultados(df, rec_min=None, rec_max=None, ley_min=None, ley_max=No
     return df_filtrado
 
 # Ejemplo de uso:
-df_filtrado = graficar_resultados(df_resultados.round(2), rec_min=97, ley_min=10, ley_max=30)
+df_filtrado = graficar_resultados(df_resultados.round(2), rec_min=60, ley_min=12, ley_max=30)
 def guardar_resultados_avanzado(df_filtrado, archivo='results/results_caso_1_filtered.xlsx'):
     """
     Guarda el DataFrame filtrado en un archivo Excel.

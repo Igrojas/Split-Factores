@@ -5,7 +5,6 @@ import math
 import pandas as pd
 from typing import Dict, Tuple
 
-
 class circuito():
     def __init__(self):
         self.name='padre'
@@ -87,9 +86,7 @@ def flujos_globales(lista_equipos):
     return flujos_entrada, flujos_salida, flujos_salida_conc, flujos_internos
 
 
-
 df = pd.read_excel('Simulacion_caso_base.xlsx')
-# df = df[df["Simulacion"] == 4]
 
 num_simulaciones=df["Simulacion"].nunique()
 print(f"Total de simulaciones: {num_simulaciones}")
@@ -162,20 +159,27 @@ print(fs_conc)
 import pandas as pd
 import openpyxl
 
-df_alim = pd.read_excel('Alimentacion_caso_base.xlsx',sheet_name="Alim")
-
 flujos[4].name='Alim. 1ra Limpieza'
 flujos[4].masa= 24.515
-flujos[4].cut= 3.63
+flujos[4].cut= 2.30
 Max_iter= 100
 #%%
 
-iter_mc = 100000
+iter_mc = 10000
 
 # Crear lista para almacenar resultados de cada iteración
 resultados = []
 for i in range(iter_mc):
     for sim in lista_equipos:
+
+        sp_jms_1 = [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.7), 2)]
+        sp_scv = [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.90), 2)]
+        sp_cl_scv = [round(random.uniform(0.01, 0.95), 2), round(random.uniform(0.01, 0.95), 2)]
+
+        lista_equipos[1]["Jameson 1"].split_factor = sp_jms_1
+        lista_equipos[1]["Scavenger"].split_factor = sp_scv
+        lista_equipos[1]["1ra Cl Scv"].split_factor = sp_cl_scv
+
         for nombre, equipo in lista_equipos[sim].items():
             equipo.calcula(flujos)
 
@@ -183,9 +187,13 @@ for i in range(iter_mc):
         MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
         RazonEnriquecimiento = Recuperacion / MassPull
         Ley_Conc_Final = sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc])*100
+        error_masa = flujos[4].masa - sum([flujos[i].masa for i in fs])
+        error_ley = flujos[4].masa * flujos[4].cut - sum([flujos[i].masa * flujos[i].cut for i in fs])
 
         # Guardamos split factors y resultados en cada fila
         fila = {
+            'error_masa': error_masa,
+            'error_ley': error_ley,
             'sp_Jameson_1_masa': sp_jms_1[0],
             'sp_Jameson_1_cuf': sp_jms_1[1],
             'sp_Scavenger_masa': sp_scv[0],
@@ -230,16 +238,16 @@ def graficar_resultados(df, rec_min=None, rec_max=None, ley_min=None, ley_max=No
     """
     df_filtrado = df.copy()
     
-    df_filtrado = df_filtrado[df_filtrado['Flujo 10 Cut'] < 30]
+    # df_filtrado = df_filtrado[df_filtrado['Flujo 10 Cut'] < 30]
     
 
     # Filtro FIJO: todos 'Flujo X Cut' < 30
     cut_cols = [col for col in df_filtrado.columns if col.startswith('Flujo') and col.endswith('Cut')]
     for col in cut_cols:
-        df_filtrado = df_filtrado[df_filtrado[col] < 30]
+        df_filtrado = df_filtrado[df_filtrado[col] < 100]
 
     # También filtra todas las er (razón de enriquecimiento) mayores a 7
-    df_filtrado = df_filtrado[df_filtrado['er_jameson_1'] <= 8]
+    df_filtrado = df_filtrado[df_filtrado['er_jameson_1'] <= 12]
     # df_filtrado = df_filtrado[df_filtrado['er_scavenger'] <= 2]
     # df_filtrado = df_filtrado[df_filtrado['er_cl_scavenger'] <= 4.8]
     # Filtros variables
@@ -274,7 +282,7 @@ def graficar_resultados(df, rec_min=None, rec_max=None, ley_min=None, ley_max=No
     return df_filtrado
 
 # Ejemplo de uso con los filtros originales:
-df_filtrado = graficar_resultados(df_resultados.round(2), rec_min=90, ley_min=1, ley_max=30)
+df_filtrado = graficar_resultados(df_resultados.round(2), rec_min=90, ley_min=1, ley_max=40)
 # Ejemplo de uso SOLO filtrando por Flujo 9 Cut:
 
 def guardar_resultados_avanzado(df_filtrado, archivo='results/results_caso_4_filtered.xlsx'):
