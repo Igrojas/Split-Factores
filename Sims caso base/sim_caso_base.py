@@ -80,18 +80,17 @@ def flujos_globales(lista_equipos):
         fin.update(eq[1].flow_in)
         fout.update(eq[1].flow_out)
 
-    print(fin)
-    print(fout)
-
     flujos_entrada = fin - fout
     flujos_salida   = fout - fin
     flujos_salida_conc = flujos_salida - {9}
     flujos_internos = fin & fout
 
+    print(f"Flujos entrada: {flujos_entrada}")
+    print(f"Flujos salida: {flujos_salida}")
+    print(f"Flujos salida conc: {flujos_salida_conc}")
+    print(f"Flujos internos: {flujos_internos}")
+
     return flujos_entrada, flujos_salida, flujos_salida_conc, flujos_internos
-
-
-import numpy as np
 
 def cargar_datos_equipos(path_excel, sheet_name=None):
     """
@@ -288,8 +287,8 @@ def correr_simulacion_montecarlo(
                 # Modificar split factors SOLO para equipos_objetivo
                 for eq_name, eq in equipos.items():
                     if eq.name in equipos_objetivo:
-                        s1 = np.random.uniform(0.1, 0.85)
-                        s2 = np.random.uniform(0.1, 0.85)
+                        s1 = np.random.uniform(0.02, 0.4) #masa
+                        s2 = np.random.uniform(0.4, 0.8) #cuf
                         eq.split_factor = [s1, s2]
                 
                 # Calcular todos los equipos de esta simulación
