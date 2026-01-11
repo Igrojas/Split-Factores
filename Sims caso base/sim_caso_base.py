@@ -1,6 +1,6 @@
 #%%
 import random
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import math
 import pandas as pd
 from typing import Dict, Tuple
@@ -8,7 +8,6 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import copy
-
 
 class circuito():
     def __init__(self):
