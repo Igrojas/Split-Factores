@@ -218,7 +218,9 @@ def correr_simulacion_montecarlo(
     equipos_objetivo=None,
     semilla_inicial_flujos=None,
     n_sim=1_000_000,
-    sheet_name=None
+    sheet_name=None,
+    ley_conc_final_min=None,
+    ley_conc_final_max=None
 ):
     """
     Ejecuta una simulación Monte Carlo para CADA 'simulación' encontrada en la hoja base.
@@ -229,6 +231,7 @@ def correr_simulacion_montecarlo(
             - Se hace copia profunda de equipos y flujos
             - Se sortean split_factor aleatorios SOLO para equipos_objetivo
             - Se calculan los flujos/resultados
+        - Se filtran los resultados según Ley_Conc_Final (si se especifican filtros)
         - Se guardan los resultados en Excel separados por hoja según simulación
     
     Args:
@@ -237,9 +240,11 @@ def correr_simulacion_montecarlo(
         semilla_inicial_flujos: Dict con valores iniciales para flujos {id_flujo: {'masa': val, 'cut': val}}
         n_sim: Número de iteraciones Monte Carlo
         sheet_name: Nombre de la hoja Excel a leer. Si es None, lee la hoja principal (por defecto)
+        ley_conc_final_min: Valor mínimo para filtrar por Ley_Conc_Final (inclusive). Si es None, no filtra por mínimo
+        ley_conc_final_max: Valor máximo para filtrar por Ley_Conc_Final (inclusive). Si es None, no filtra por máximo
     
     Returns:
-        Dict donde cada llave es el id de simulación y el valor es un DataFrame con resultados MC
+        Dict donde cada llave es el id de simulación y el valor es un DataFrame con resultados MC filtrados
     """
     import tqdm
     import os
@@ -337,9 +342,18 @@ def correr_simulacion_montecarlo(
         
         # Crear DataFrame con resultados de esta simulación
         df_resultados_mc = pd.DataFrame(resultados_mc)
+        
+        # Aplicar filtros por Ley_Conc_Final si se especificaron
+        if ley_conc_final_min is not None:
+            df_resultados_mc = df_resultados_mc[df_resultados_mc['Ley_Conc_Final'] >= ley_conc_final_min]
+        if ley_conc_final_max is not None:
+            df_resultados_mc = df_resultados_mc[df_resultados_mc['Ley_Conc_Final'] <= ley_conc_final_max]
+        
         results_por_sim[sim_id] = df_resultados_mc
         
-        print(f"Simulación {sim_id} completada: {len(resultados_mc):,} iteraciones exitosas")
+        total_iter = len(resultados_mc)
+        iter_filtradas = len(df_resultados_mc)
+        print(f"Simulación {sim_id} completada: {total_iter:,} iteraciones exitosas, {iter_filtradas:,} después del filtro")
 
     # Guardar resultados en Excel separados por hoja según simulación
     os.makedirs('results', exist_ok=True)
@@ -375,12 +389,17 @@ def main():
     semilla = {4: {'masa': 24.515, 'cut': 2.40}}
     equipos_a_cambiar = ["Jameson 1"] # Modificar según el problema
     hoja_mc = "Sim MC"  # Nombre de la hoja para Monte Carlo (None para usar hoja principal)
+    # Filtros para Ley_Conc_Final: solo guardar valores entre 17 y 26
+    ley_min = 17
+    ley_max = 26
     df_resultados_mc = correr_simulacion_montecarlo(
         archivo_base=archivo_base,
         equipos_objetivo=equipos_a_cambiar,
         semilla_inicial_flujos=semilla,
         n_sim=1000000,
-        sheet_name=hoja_mc
+        sheet_name=hoja_mc,
+        ley_conc_final_min=ley_min,
+        ley_conc_final_max=ley_max
     )
 
     # 4. Guardar resultados normales
