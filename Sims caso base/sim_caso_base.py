@@ -219,7 +219,8 @@ def correr_simulacion_montecarlo(
     n_sim=1_000_000,
     sheet_name=None,
     ley_conc_final_min=None,
-    ley_conc_final_max=None
+    ley_conc_final_max=None,
+    nombre_archivo_salida=None
 ):
     """
     Ejecuta una simulación Monte Carlo para CADA 'simulación' encontrada en la hoja base.
@@ -241,6 +242,7 @@ def correr_simulacion_montecarlo(
         sheet_name: Nombre de la hoja Excel a leer. Si es None, lee la hoja principal (por defecto)
         ley_conc_final_min: Valor mínimo para filtrar por Ley_Conc_Final (inclusive). Si es None, no filtra por mínimo
         ley_conc_final_max: Valor máximo para filtrar por Ley_Conc_Final (inclusive). Si es None, no filtra por máximo
+        nombre_archivo_salida: Nombre del archivo de salida. Si es None, usa 'results_montecarlo.xlsx'
     
     Returns:
         Dict donde cada llave es el id de simulación y el valor es un DataFrame con resultados MC filtrados
@@ -291,8 +293,8 @@ def correr_simulacion_montecarlo(
                 # Modificar split factors SOLO para equipos_objetivo
                 for eq_name, eq in equipos.items():
                     if eq.name in equipos_objetivo:
-                        s1 = np.random.uniform(0.02, 0.4) #masa
-                        s2 = np.random.uniform(0.4, 0.8) #cuf
+                        s1 = np.random.uniform(0.02, 0.7) #masa
+                        s2 = np.random.uniform(0.02, 0.9) #cuf
                         eq.split_factor = [s1, s2]
                 
                 # Calcular todos los equipos de esta simulación
@@ -356,7 +358,9 @@ def correr_simulacion_montecarlo(
 
     # Guardar resultados en Excel separados por hoja según simulación
     os.makedirs('results', exist_ok=True)
-    archivo_salida = os.path.join('results', 'results_montecarlo.xlsx')
+    if nombre_archivo_salida is None:
+        nombre_archivo_salida = 'results_montecarlo.xlsx'
+    archivo_salida = os.path.join('results', nombre_archivo_salida)
     
     with pd.ExcelWriter(archivo_salida) as writer:
         for sim_id, df in results_por_sim.items():
@@ -371,265 +375,347 @@ def correr_simulacion_montecarlo(
 # === MAIN ===
 def main():
     """
-    Ejecuta la simulación y retorna todas las salidas relevantes:
-    - lista_equipos: diccionario de equipos para cada simulación
-    - flujos: diccionario de flujos
-    - df_resultados: DataFrame con resultados principales de simulación normal
-    - df_resultados_mc: Diccionario con resultados del Monte Carlo por simulación {sim_id: DataFrame}
+    Ejecuta las simulaciones normales y Monte Carlo para cada hoja:
+    - Simulaciones normales: "Sim Dia", "Sim Noche", "Sim Promedio"
+    - Simulaciones Monte Carlo: "Sim MC Dia", "Sim MC Noche", "Sim MC Promedio"
+    
+    Retorna:
+    - resultados_normales: Diccionario {nombre_hoja: DataFrame} con resultados de simulación normal
+    - resultados_mc: Diccionario {nombre_hoja: {sim_id: DataFrame}} con resultados de Monte Carlo
     """
-    # 1. Cargar equipos y flujos desde archivo base
-    lista_equipos, flujos = cargar_datos_equipos('../Simulacion_caso_base.xlsx')
-
-    # 2. Simulación "normal"
-    df_resultados = correr_simulacion_normal(lista_equipos, flujos)
-
-    # 3. Simulación Monte Carlo (1e6 ejecuciones, split_factor aleatorio para equipos deseados)
+    import os
+    
+    # Configuración
     archivo_base = '../Simulacion_caso_base.xlsx'
     semilla = {4: {'masa': 24.515, 'cut': 2.40}}
-    equipos_a_cambiar = ["Jameson 1"] # Modificar según el problema
-    hoja_mc = "Sim MC"  # Nombre de la hoja para Monte Carlo (None para usar hoja principal)
-    # Filtros para Ley_Conc_Final: solo guardar valores entre 17 y 26
-    ley_min = 17
+    equipos_a_cambiar = ["Jameson 1"]
+    ley_min = 12
     ley_max = 26
-    df_resultados_mc = correr_simulacion_montecarlo(
-        archivo_base=archivo_base,
-        equipos_objetivo=equipos_a_cambiar,
-        semilla_inicial_flujos=semilla,
-        n_sim=1000000,
-        sheet_name=hoja_mc,
-        ley_conc_final_min=ley_min,
-        ley_conc_final_max=ley_max
-    )
-
-    # 4. Guardar resultados normales
-    import os
-    os.makedirs('results', exist_ok=True)
-    with pd.ExcelWriter(os.path.join('results', 'results_caso_4.xlsx')) as writer:
-        for sim_id in df_resultados['Simulacion'].unique():
-            df_sim = df_resultados[df_resultados['Simulacion'] == sim_id]
-            df_sim.to_excel(writer, sheet_name=f'Simulacion_{sim_id}', index=False)
+    n_sim_mc = 10000
     
-    # Los resultados de Monte Carlo ya se guardan dentro de correr_simulacion_montecarlo
-    # No es necesario guardarlos aquí nuevamente
-
-    # Mostrar resultados principales (opcional si usas Jupyter)
+    # Hojas de simulación normal
+    hojas_sim_normal = ["Sim Dia", "Sim Noche", "Sim Promedio"]
+    
+    # Hojas de simulación Monte Carlo
+    hojas_sim_mc = ["Sim MC Dia", "Sim MC Noche", "Sim MC Promedio"]
+    
+    # Diccionarios para almacenar resultados
+    resultados_normales = {}
+    resultados_mc = {}
+    
+    # Crear directorio de resultados
+    os.makedirs('results', exist_ok=True)
+    
+    # ===== SIMULACIONES NORMALES =====
+    print(f"\n{'='*60}")
+    print("EJECUTANDO SIMULACIONES NORMALES")
+    print(f"{'='*60}\n")
+    
+    for hoja in hojas_sim_normal:
+        print(f"\n{'='*60}")
+        print(f"Procesando hoja: {hoja}")
+        print(f"{'='*60}")
+        
+        # Cargar equipos y flujos desde la hoja específica
+        lista_equipos, flujos = cargar_datos_equipos(archivo_base, sheet_name=hoja)
+        
+        # Ejecutar simulación normal
+        df_resultados = correr_simulacion_normal(lista_equipos, flujos)
+        
+        # Guardar resultados
+        resultados_normales[hoja] = df_resultados
+        
+        # Guardar en Excel
+        nombre_archivo = f"results/results_{hoja.lower().replace(' ', '_')}.xlsx"
+        with pd.ExcelWriter(nombre_archivo) as writer:
+            for sim_id in df_resultados['Simulacion'].unique():
+                df_sim = df_resultados[df_resultados['Simulacion'] == sim_id]
+                df_sim.to_excel(writer, sheet_name=f'Simulacion_{sim_id}', index=False)
+        
+        print(f"Resultados guardados en: {nombre_archivo}")
+    
+    # ===== SIMULACIONES MONTE CARLO =====
+    print(f"\n{'='*60}")
+    print("EJECUTANDO SIMULACIONES MONTE CARLO")
+    print(f"{'='*60}\n")
+    
+    for hoja_mc in hojas_sim_mc:
+        print(f"\n{'='*60}")
+        print(f"Procesando hoja MC: {hoja_mc}")
+        print(f"{'='*60}")
+        
+        # Ejecutar simulación Monte Carlo
+        nombre_archivo_mc = f"results_montecarlo_{hoja_mc.lower().replace(' ', '_')}.xlsx"
+        df_resultados_mc = correr_simulacion_montecarlo(
+            archivo_base=archivo_base,
+            equipos_objetivo=equipos_a_cambiar,
+            semilla_inicial_flujos=semilla,
+            n_sim=n_sim_mc,
+            sheet_name=hoja_mc,
+            ley_conc_final_min=ley_min,
+            ley_conc_final_max=ley_max,
+            nombre_archivo_salida=nombre_archivo_mc
+        )
+        
+        # Guardar resultados
+        resultados_mc[hoja_mc] = df_resultados_mc
+    
+    # Mostrar resumen de resultados
+    print(f"\n{'='*60}")
+    print("RESUMEN DE RESULTADOS")
+    print(f"{'='*60}")
+    
     try:
         from IPython.display import display
-        display(df_resultados.head())
-        if df_resultados_mc is not None:
-            # df_resultados_mc es un diccionario, mostrar el primer DataFrame
-            if df_resultados_mc:
-                first_sim_id = list(df_resultados_mc.keys())[0]
-                display(df_resultados_mc[first_sim_id].head())
+        for hoja, df in resultados_normales.items():
+            print(f"\nResultados normales - {hoja}:")
+            display(df.head())
+        
+        for hoja_mc, dict_mc in resultados_mc.items():
+            if dict_mc:
+                first_sim_id = list(dict_mc.keys())[0]
+                print(f"\nResultados MC - {hoja_mc} (Simulación {first_sim_id}):")
+                display(dict_mc[first_sim_id].head())
     except ImportError:
-        print(df_resultados.head())
-        if df_resultados_mc is not None:
-            # df_resultados_mc es un diccionario, mostrar el primer DataFrame
-            if df_resultados_mc:
-                first_sim_id = list(df_resultados_mc.keys())[0]
-                print(f"\nResultados MC - Simulación {first_sim_id}:")
-                print(df_resultados_mc[first_sim_id].head())
-
-    # Retornar todas las salidas solicitadas
-    return lista_equipos, flujos, df_resultados, df_resultados_mc
+        for hoja, df in resultados_normales.items():
+            print(f"\nResultados normales - {hoja}:")
+            print(df.head())
+        
+        for hoja_mc, dict_mc in resultados_mc.items():
+            if dict_mc:
+                first_sim_id = list(dict_mc.keys())[0]
+                print(f"\nResultados MC - {hoja_mc} (Simulación {first_sim_id}):")
+                print(dict_mc[first_sim_id].head())
+    
+    # Retornar todas las salidas
+    return resultados_normales, resultados_mc
     
 # Ejecutar si es programa principal
 
 if __name__ == "__main__":
-    lista_equipos, flujos, df_resultados, df_resultados_mc = main()
+    resultados_normales, resultados_mc = main()
 
+# ===== SECCIÓN DE GRÁFICAS =====
+# Crear gráficas para las 3 simulaciones: Día, Noche, Promedio
+# Cada simulación tendrá 2 subplots: Split Masa vs Split CuF, y Nube MC + Test de Dilución
 #%%
-def graficar_resultados(df, rec_min=None, rec_max=None, ley_min=None, ley_max=None, solo_flujo9_cut=False):
-    """
-    Filtra el DataFrame según los parámetros ingresados. 
-    Si solo_flujo9_cut=True, sólo filtra por 'Flujo 9 Cut' > 0.2 y < 30 y no por las otras columnas de cut.
-    """
-    df_filtrado = df.copy()
+# Definir las hojas a procesar (en orden: Día, Noche, Promedio)
+hojas_mc = ["Sim MC Dia", "Sim MC Noche", "Sim MC Promedio"]
+hojas_normal = ["Sim Dia", "Sim Noche", "Sim Promedio"]
+turnos = ["Día", "Noche", "Promedio"]
+
+# Cargar datos de Monte Carlo para cada hoja
+dict_sims_mc_por_turno = {}
+for hoja_mc, turno in zip(hojas_mc, turnos):
+    if hoja_mc in resultados_mc and resultados_mc[hoja_mc]:
+        dict_sims_mc_por_turno[turno] = resultados_mc[hoja_mc]
+    else:
+        # Fallback: intentar cargar desde archivo
+        try:
+            archivo_mc = f'results/results_montecarlo_{hoja_mc.lower().replace(" ", "_")}.xlsx'
+            df_mc = pd.read_excel(archivo_mc)
+            # Si hay múltiples hojas en el Excel, usar la primera
+            if isinstance(df_mc, dict):
+                dict_sims_mc_por_turno[turno] = df_mc
+            else:
+                dict_sims_mc_por_turno[turno] = {1: df_mc}
+        except FileNotFoundError:
+            print(f"Advertencia: No se encontraron resultados MC para {hoja_mc}")
+            dict_sims_mc_por_turno[turno] = {}
+
+# Cargar datos de simulación normal para cada hoja
+dict_resultados_normal_por_turno = {}
+for hoja_normal, turno in zip(hojas_normal, turnos):
+    if hoja_normal in resultados_normales:
+        dict_resultados_normal_por_turno[turno] = resultados_normales[hoja_normal]
+    else:
+        dict_resultados_normal_por_turno[turno] = None
+
+# Verificar que tenemos al menos una simulación MC
+n_simulaciones = len([t for t in turnos if dict_sims_mc_por_turno.get(t)])
+
+if n_simulaciones > 0:
+    file_test_dil = '../Test Dilucion.xlsx'
+    df_test_dil = pd.read_excel(file_test_dil)
+
+    # Datos "pilotaje", se usará para comparar
+    data = {
+        'Rec Cuf': [94.53,  95.20,  94.43],
+        'Rec Masa': [22.94 , 14.46, 18.22],
+        'Turno': ['Día', 'Noche', 'Promedio']
+    }
+    df_pilotaje = pd.DataFrame(data)
+
+    # Solo id 5 para test de dilución
+    df_test_id5 = df_test_dil[df_test_dil['id'] == 5]
+    if 'Recuperación, Cu%' in df_test_id5.columns:
+        df_test_id5 = df_test_id5[df_test_id5['Recuperación, Cu%'] != 100]
+    df_test_id5_entero = df_test_id5.copy()
+    df_test_id5_entero['Recuperación, Cu%'] = df_test_id5_entero['Recuperación, Cu%'].round().astype(int)
+    df_test_id5_entero['Ley acumulada, Cu%'] = df_test_id5_entero['Ley acumulada, Cu%'].round().astype(int)
+
+    # Definir colores y marcadores
+    colores = {'Día': 'orange', 'Noche': 'blue', 'Promedio': 'green'}
+    marcadores = {'Día': 'D', 'Noche': 'D', 'Promedio': 'D'}
+
+    # --- SUBPLOTS ---
+    # Crear subplots: 3 filas (Día, Noche, Promedio) x 2 columnas (Split, Nube+Test)
+    ncols = 2
+    nrows = 3  # Siempre 3 filas para Día, Noche, Promedio
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(17, 6 * nrows))
     
-    df_filtrado = df_filtrado[df_filtrado['Flujo 10 Cut'] < 30]
-    
+    # Para cada turno (Día, Noche, Promedio)
+    for idx_turno, turno in enumerate(turnos):
+        # Obtener los ejes para esta fila
+        ax0 = axes[idx_turno, 0]  # Subplot izquierdo: Split Masa vs Split CuF
+        ax1 = axes[idx_turno, 1]  # Subplot derecho: Nube MC + Test de Dilución
+        
+        # Obtener datos MC para este turno
+        dict_sims_mc_turno = dict_sims_mc_por_turno.get(turno, {})
+        
+        if not dict_sims_mc_turno:
+            # Si no hay datos MC para este turno, mostrar mensaje
+            ax0.text(0.5, 0.5, f"No hay datos MC para {turno}", ha='center', va='center', transform=ax0.transAxes)
+            ax0.axis('off')
+            ax1.text(0.5, 0.5, f"No hay datos MC para {turno}", ha='center', va='center', transform=ax1.transAxes)
+            ax1.axis('off')
+            continue
+        
+        # Obtener el primer DataFrame de MC para este turno
+        sim_id = list(dict_sims_mc_turno.keys())[0]
+        df_mc = dict_sims_mc_turno[sim_id].copy()
+        
+        # Obtener datos de simulación normal para este turno
+        df_resultados_turno = dict_resultados_normal_por_turno.get(turno)
+        
+        # Calcular er_jameson_1 si es necesario (para ambos subplots)
+        if "Jameson 1_split_masa" in df_mc.columns and "Jameson 1_split_cuf" in df_mc.columns:
+            df_mc["er_jameson_1"] = df_mc["Jameson 1_split_cuf"] / df_mc["Jameson 1_split_masa"]
+        
+        # --- SUBPLOT 1: Split Masa vs Split CuF de Jameson 1 ---
+        if "Jameson 1_split_masa" in df_mc.columns and "Jameson 1_split_cuf" in df_mc.columns:
+            # Filtrar solo para este subplot
+            df_mc_filtrado = df_mc[(df_mc["er_jameson_1"] >= 6) & (df_mc["er_jameson_1"] <= 11)].copy()
+            
+            if not df_mc_filtrado.empty:
+                im0 = ax0.scatter(
+                    df_mc_filtrado["Jameson 1_split_masa"], df_mc_filtrado["Jameson 1_split_cuf"],
+                    alpha=0.7, s=18, c=df_mc_filtrado["er_jameson_1"], cmap="RdYlBu"
+                )
+                ax0.set_xlabel("Split Masa Jameson 1", fontsize=11)
+                ax0.set_ylabel("Split CuF Jameson 1", fontsize=11)
+                ax0.set_title(f"Jameson 1: Split Masa vs Split CuF\n(color = ER) - {turno}", fontsize=12)
+                cbar0 = fig.colorbar(im0, ax=ax0)
+                cbar0.set_label("ER Jameson 1", fontsize=10)
+                ax0.grid(True, alpha=0.2)
+            else:
+                ax0.text(0.5, 0.5, "No hay datos después del filtro ER", ha='center', va='center', transform=ax0.transAxes)
+                ax0.axis('off')
+        else:
+            ax0.text(0.5, 0.5, "Faltan datos para graficar splits", ha='center', va='center', transform=ax0.transAxes)
+            ax0.axis('off')
+        
+        # --- SUBPLOT 2: Nube MC y Test de Dilución ---
+        # Filtrar df_mc para el subplot 2 también (si tiene er_jameson_1)
+        df_mc_plot2 = df_mc.copy()
+        if "er_jameson_1" in df_mc_plot2.columns:
+            df_mc_plot2 = df_mc_plot2[(df_mc_plot2["er_jameson_1"] >= 6) & (df_mc_plot2["er_jameson_1"] <= 11)]
+        
+        # Nube de simulación MC
+        if "Recuperacion" in df_mc_plot2.columns and "Ley_Conc_Final" in df_mc_plot2.columns and not df_mc_plot2.empty:
+            sc1 = ax1.scatter(
+                df_mc_plot2['Recuperacion'],
+                df_mc_plot2['Ley_Conc_Final'],
+                c=df_mc_plot2['er_jameson_1'] if "er_jameson_1" in df_mc_plot2.columns else None,
+                cmap='RdYlBu',
+                alpha=1,
+                s=15,
+                label=f"Simulación Monte Carlo ({turno})"
+            )
+            if "er_jameson_1" in df_mc_plot2.columns:
+                cbar1 = fig.colorbar(sc1, ax=ax1, label="ER Jameson 1", pad=0.02)
+        
+        # Pilotaje: mostrar solo el punto correspondiente a este turno
+        df_grupo_pilotaje = df_pilotaje[df_pilotaje['Turno'] == turno]
+        if not df_grupo_pilotaje.empty:
+            ax1.scatter(
+                df_grupo_pilotaje['Rec Cuf'],
+                df_grupo_pilotaje['Rec Masa'],
+                color=colores[turno],
+                marker=marcadores[turno],
+                s=250 if turno == 'Promedio' else 150,
+                label=f"Pilotaje {turno}",
+                edgecolor='black',
+                linewidth=2,
+                zorder=5
+            )
+        
+        # Simulación normal (simpre) para este turno
+        if df_resultados_turno is not None and not df_resultados_turno.empty:
+            # Obtener la primera fila de resultados normales para este turno
+            for idx, row in df_resultados_turno.iterrows():
+                x = int(round(row['Recuperacion']))
+                y = int(round(row['Ley_Conc_Final']))
+                ax1.scatter(
+                    x, y,
+                    color=colores[turno],
+                    marker='*',
+                    s=350 if turno == 'Promedio' else 250,
+                    edgecolor='black',
+                    linewidth=1.5,
+                    label=f"Simulación Normal ({turno})",
+                    zorder=6
+                )
+                ax1.text(
+                    x,
+                    y + 0.5,
+                    f"Sim {row['Simulacion']}",
+                    fontsize=10,
+                    ha='center',
+                    va='bottom',
+                    fontweight='bold',
+                    color='black',
+                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='black', boxstyle='round,pad=0.3'),
+                    zorder=7
+                )
+        
+        # Resultados de test de dilución (misma gráfica)
+        sns.lineplot(
+            x='Recuperación, Cu%',
+            y='Ley acumulada, Cu%',
+            data=df_test_id5_entero,
+            color='royalblue',
+            alpha=1,
+            marker='D',
+            markersize=8,
+            linestyle='--',
+            linewidth=2,
+            label=f"Test de Dilución Ley Alimentación = {int(round(df_test_id5['Ley Cu'].iloc[0]))}",
+            zorder=10,
+            ax=ax1
+        )
+        
+        # Configurar ticks y etiquetas para subplot 2
+        x_start = max(0, 5 * int(np.floor(ax1.get_xlim()[0] / 5)))
+        x_end = 100
+        xticks = np.arange(x_start, x_end + 1, 5)
+        ax1.set_xticks(xticks)
+        ax1.set_xlim(x_start, x_end)
+        ylim = ax1.get_ylim()
+        y_start = 2 * int(np.floor(ylim[0] / 2))
+        y_end = 2 * int(np.ceil(ylim[1] / 2))
+        yticks = np.arange(y_start, y_end + 1, 2)
+        ax1.set_yticks(yticks)
+        ax1.set_ylim(y_start, y_end)
+        ax1.set_xlabel('Recuperación (%)', fontsize=11)
+        ax1.set_ylabel('Ley de Conc. Final (%)', fontsize=11)
+        ax1.set_title(f'Nube de Simulación y Test de Dilución - {turno}', fontsize=12)
+        ax1.grid(True, linestyle='--', alpha=0.6)
+        # Colocar leyenda fuera, a la derecha, centrada verticalmente
+        ax1.legend(bbox_to_anchor=(1.02, 0.5), loc='center left', fontsize=8, frameon=True)
 
-    # Filtro FIJO: todos 'Flujo X Cut' < 30
-    cut_cols = [col for col in df_filtrado.columns if col.startswith('Flujo') and col.endswith('Cut')]
-    for col in cut_cols:
-        df_filtrado = df_filtrado[df_filtrado[col] < 27]
-
-    # Filtros variables
-    if rec_min is not None:
-        df_filtrado = df_filtrado[df_filtrado['Recuperacion'] >= rec_min]
-    if rec_max is not None:
-        df_filtrado = df_filtrado[df_filtrado['Recuperacion'] <= rec_max]
-    if ley_min is not None:
-        df_filtrado = df_filtrado[df_filtrado['Ley_Conc_Final'] >= ley_min]
-    if ley_max is not None:
-        df_filtrado = df_filtrado[df_filtrado['Ley_Conc_Final'] <= ley_max]
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    scatter = sns.scatterplot(
-        x='Recuperacion',
-        y='Ley_Conc_Final',
-        hue='RazonEnriquecimiento',
-        size='MassPull',
-        palette='viridis',
-        data=df_filtrado,
-        legend='brief',
-        ax=ax
-    )
-    ax.grid(True,alpha=0.5)
-    ax.set_title('Recuperacion vs Ley_Conc_Final')
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
-
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 0.88, 1])  # Dejar más espacio a la derecha para leyenda y colorbar
     plt.show()
-
-    return df_filtrado
-
-# Ejemplo de uso con los filtros originales:
-df_filtrado = graficar_resultados(df_resultados.round(2), rec_min=90, ley_min=1, ley_max=30)
-# Ejemplo de uso SOLO filtrando por Flujo 9 Cut:
-
-def guardar_resultados_avanzado(df_filtrado, archivo='results/results_caso_4_filtered.xlsx'):
-    """
-    Guarda el DataFrame filtrado en un archivo Excel.
-    Además, en una segunda hoja, agrega las primeras concentraciones más altas,
-    ordenadas con las columnas específicas:
-    Recuperación, MassPull, Razón Enriquicimiento, Ley de Conc. Final,
-    Flujo 11 Masa, Flujo 11 Cut
-    """
-    import pandas as pd
-
-    # Guardar df_filtrado en la primera hoja
-    with pd.ExcelWriter(archivo) as writer:
-        df_filtrado.to_excel(writer, index=False, sheet_name='Resultados Filtrados')
-
-        # Obtener los N resultados con las concentraciones finales más altas. 
-        # Por defecto, toma los 10 más altos o menos si hay menos filas.
-        top_n = min(10, len(df_filtrado))
-        df_top = df_filtrado.nlargest(top_n, 'Ley_Conc_Final')
-
-        # Columnas requeridas
-        columnas = [
-            'Recuperacion',
-            'MassPull',
-            'RazonEnriquecimiento',
-            'Ley_Conc_Final',
-            'Flujo 9 Masa',
-            'Flujo 9 Cut'
-        ]
-        # Filtrar por las columnas que existen en el dataframe (en caso de que falte alguna)
-        columnas_existentes = [col for col in columnas if col in df_top.columns]
-
-        df_resumen = df_top.loc[:, columnas_existentes].copy()
-        # Cambiamos los nombres a los pedidos
-        renombres = {
-            'Recuperacion': 'Recuperación',
-            'MassPull': 'MassPull',
-            'RazonEnriquicimiento': 'Razón Enriquicimiento',
-            'RazonEnriquecimiento': 'Razón Enriquicimiento',
-            'Ley_Conc_Final': 'Ley de Conc. Final',
-            'Flujo 9 Masa': 'Flujo 9 Masa',
-            'Flujo 9 Cut': 'Flujo 9 Cut'
-        }
-        df_resumen.rename(columns=renombres, inplace=True)
-        df_resumen.to_excel(writer, index=False, sheet_name='Top Concentraciones')
-
-guardar_resultados_avanzado(df_filtrado)
-# %%
-
-file_test_dil = '../Test Dilucion.xlsx'
-df_test_dil = pd.read_excel(file_test_dil)
-
-# Solo id 5 para test de dilución
-df_test_id5 = df_test_dil[df_test_dil['id'] == 5]
-
-# Elimina fila(s) donde la recuperación es 100 (asumiendo columna Recuperación, Cu%)
-if 'Recuperación, Cu%' in df_test_id5.columns:
-    df_test_id5 = df_test_id5[df_test_id5['Recuperación, Cu%'] != 100]
-# Crear la figura y los ejes
-fig, ax = plt.subplots(figsize=(8,6))
-
-# Graficar TODOS los puntos en una sola gráfica:
-# 1. Resultados de simulación (nube Monte Carlo) con etiqueta según columna 'Simulacion'
-for idx, row in df_resultados.iloc[:2].iterrows():
-    x = int(round(row['Recuperacion']))
-    y = int(round(row['Ley_Conc_Final']))
-    label = f"Sim {row['Simulacion']}"  # Etiqueta para cada punto
-    ax.scatter(
-        x, 
-        y,
-        color='black', 
-        alpha=1, 
-        edgecolor='w', 
-        s=500,
-        marker='*',
-        #label=label
-    )
-    # Mostramos la etiqueta un poco más arriba del punto en la gráfica
-    ax.text(
-        x, 
-        y + 1,  # Solo enteros, desplazamiento de 1 entero hacia arriba
-        label, 
-        fontsize=10, 
-        ha='center', 
-        va='bottom',  # Anclar la parte inferior del texto para que quede "sobre" el punto
-        fontweight='bold',
-        color='black',
-        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.2')
-    )
-# Agrega un punto verde estrella en (94.41, 18.36) convertido a enteros
-ax.scatter(
-    int(round(94.41)),
-    int(round(18.36)),
-    color='green',
-    edgecolor='w',
-    s=500,
-    marker='*',
-    label="Pilotaje Caso Base"
-)
-
-# 2. Resultados de test de dilución (id 5) como línea, pero SOBRE LA MISMA GRÁFICA
-# Nos aseguramos de convertir los ejes de df_test_id5 a enteros antes de graficar
-df_test_id5_entero = df_test_id5.copy()
-df_test_id5_entero['Recuperación, Cu%'] = df_test_id5_entero['Recuperación, Cu%'].round().astype(int)
-df_test_id5_entero['Ley acumulada, Cu%'] = df_test_id5_entero['Ley acumulada, Cu%'].round().astype(int)
-
-sns.lineplot(
-    x='Recuperación, Cu%', 
-    y='Ley acumulada, Cu%', 
-    data=df_test_id5_entero,
-    color='royalblue',
-    alpha=1,
-    marker='D',
-    markersize=8,
-    linestyle='--',
-    linewidth=2,
-    label=f"Test de Dilución Ley Alimentación = {int(round(df_test_id5['Ley Cu'].iloc[0]))}",
-    zorder=10,
-    ax=ax
-)
-
-# Modificar los ticks de x y y según pauta: x de 5 en 5 hasta 100, y de 2 en 2
-# Eje x: de mínimo múltiplo de 5 mayor o igual al límite inferior, hasta 100 de 5 en 5
-x_start = max(0, 5 * int(np.floor(ax.get_xlim()[0] / 5)))
-x_end = 100
-xticks = np.arange(x_start, x_end + 1, 5)
-ax.set_xticks(xticks)
-ax.set_xlim(x_start, x_end)
-
-# Eje y: de mínimo múltiplo de 2 mayor o igual al límite inferior, hasta el mayor múltiplo de 2 mayor o igual al límite superior
-ylim = ax.get_ylim()
-y_start = 2 * int(np.floor(ylim[0] / 2))
-y_end = 2 * int(np.ceil(ylim[1] / 2))
-yticks = np.arange(y_start, y_end + 1, 2)
-ax.set_yticks(yticks)
-ax.set_ylim(y_start, y_end)
-
-ax.set_xlabel('Recuperación (%)', fontsize=12)
-ax.set_ylabel('Ley de Conc. Final (%)', fontsize=12)
-ax.set_title('Nube de Simulación y Test de Dilución', fontsize=14)
-ax.grid(True, linestyle='--', alpha=0.6)
-ax.legend()
-plt.tight_layout()
-plt.show()
+else:
+    print("No se pueden generar las gráficas: faltan datos de Monte Carlo")
 #%%
