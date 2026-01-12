@@ -70,7 +70,7 @@ class flujo():
 # =============================================================================
 
 
-def flujos_globales(lista_equipos):
+def flujos_globales(lista_equipos,salidas_relave={9}):
 
     fin = set()
     fout = set()
@@ -81,7 +81,7 @@ def flujos_globales(lista_equipos):
 
     flujos_entrada = fin - fout
     flujos_salida   = fout - fin
-    flujos_salida_conc = flujos_salida - {9}
+    flujos_salida_conc = flujos_salida-salidas_relave
     flujos_internos = fin & fout
 
     print(f"Flujos entrada: {flujos_entrada}")
@@ -180,34 +180,37 @@ def correr_simulacion_normal(lista_equipos, flujos):
 
     # (Ajusta aquí la semilla inicial "manual" de masivo/flujos según corresponda a tus datos)
     flujos[4].name = 'Alim. 1ra Limpieza'
-    flujos[4].masa = 24.515
-    flujos[4].cut = 2.40
-    iter_sim = 1
+    flujos[4].masa = 23.84
+    flujos[4].cut = 2.5167
+    iter_sim = 100
 
     resultados = []
-    for i in range(iter_sim):
-        for sim in lista_equipos:
+
+    for sim in lista_equipos:
+        for i in range(iter_sim):
             for nombre, equipo in lista_equipos[sim].items():
                 equipo.calcula(flujos)
 
-            Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
-            MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
-            RazonEnriquecimiento = Recuperacion / MassPull if MassPull != 0 else 0
-            Ley_Conc_Final = (
-                sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc]) * 100 
-                if sum([flujos[i].masa for i in fs_conc]) != 0 else 0
-            )
+        Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
+        MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
+        RazonEnriquecimiento = Recuperacion / MassPull if MassPull != 0 else 0
+        Ley_Conc_Final = (
+            sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc]) * 100 
+            if sum([flujos[i].masa for i in fs_conc]) != 0 else 0
+        )
 
-            fila = {
-                'Simulacion': sim,
-                'Recuperacion': Recuperacion,
-                'MassPull': MassPull,
-                'RazonEnriquecimiento': RazonEnriquecimiento,
-                'Ley_Conc_Final': Ley_Conc_Final,
-                **{f'Flujo {k} Masa': v.masa for k, v in flujos.items()},
-                **{f'Flujo {k} Cut': v.cut for k, v in flujos.items()},
-            }
-            resultados.append(fila)
+        fila = {
+            'Simulacion': sim,
+            'Recuperacion': Recuperacion,
+            'MassPull': MassPull,
+            'RazonEnriquecimiento': RazonEnriquecimiento,
+            'Ley_Conc_Final': Ley_Conc_Final,
+            'Error Masa': flujos[4].masa - sum(flujos[i].masa for i in fs),
+            'Error CuF': flujos[4].cuf - sum(flujos[i].cuf for i in fs),
+            **{f'Flujo {k} Masa': v.masa for k, v in flujos.items()},
+            **{f'Flujo {k} Cut': v.cut for k, v in flujos.items()},
+        }
+        resultados.append(fila)
 
     df_resultados = pd.DataFrame(resultados)
     return df_resultados
@@ -291,52 +294,55 @@ def correr_simulacion_montecarlo(
                             flujos[k].cut = vals['cut']
                 
                 # Modificar split factors SOLO para equipos_objetivo
-                for eq_name, eq in equipos.items():
-                    if eq.name in equipos_objetivo:
-                        s1 = np.random.uniform(0.02, 0.7) #masa
-                        s2 = np.random.uniform(0.02, 0.9) #cuf
-                        eq.split_factor = [s1, s2]
-                
-                # Calcular todos los equipos de esta simulación
-                for nombre, equipo in equipos.items():
-                    equipo.calcula(flujos)
-                
-                # Calcular resultados principales
-                try:
-                    # Verificar que el flujo base existe
-                    if 4 not in flujos or flujos[4].cuf == 0:
-                        continue
+
+                    for eq_name, eq in equipos.items():
+                        if eq.name in equipos_objetivo:
+                            s1 = np.random.uniform(0.02, 0.7) #masa
+                            s2 = np.random.uniform(0.02, 0.9) #cuf
+                            eq.split_factor = [s1, s2]
                     
-                    Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
-                    MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
-                    RazonEnriquecimiento = Recuperacion / MassPull if MassPull != 0 else 0
-                    Ley_Conc_Final = (
-                        sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc]) * 100
-                        if sum([flujos[i].masa for i in fs_conc]) != 0 else 0
-                    )
-                except (ZeroDivisionError, KeyError):
-                    continue
+                    for i in range(100):
+                    # Calcular todos los equipos de esta simulación
+                        for nombre, equipo in equipos.items():
+                            equipo.calcula(flujos)
+                        
+                # Calcular resultados principales
+                    try:
+                        # Verificar que el flujo base existe
+                        if 4 not in flujos or flujos[4].cuf == 0:
+                            continue
+                        
+                        Recuperacion = sum([flujos[i].cuf for i in fs_conc]) / flujos[4].cuf * 100
+                        MassPull = sum([flujos[i].masa for i in fs_conc]) / flujos[4].masa * 100
+                        RazonEnriquecimiento = Recuperacion / MassPull if MassPull != 0 else 0
+                        Ley_Conc_Final = (
+                            sum([flujos[i].cuf for i in fs_conc]) / sum([flujos[i].masa for i in fs_conc]) * 100
+                            if sum([flujos[i].masa for i in fs_conc]) != 0 else 0
+                        )
+                    except (ZeroDivisionError, KeyError):
+                        continue
                 
-                # Recopilar información de split factors para equipos objetivo
-                split_info = {}
-                for eq_name, eq in equipos.items():
-                    if eq.name in equipos_objetivo:
-                        split_info[f"{eq.name}_split_masa"] = eq.split_factor[0]
-                        split_info[f"{eq.name}_split_cuf"] = eq.split_factor[1]
-                
-                # Crear fila de resultados
-                fila = {
-                    'MonteCarlo_Iter': sim_number,
-                    'Recuperacion': Recuperacion,
-                    'MassPull': MassPull,
-                    'RazonEnriquecimiento': RazonEnriquecimiento,
-                    'Ley_Conc_Final': Ley_Conc_Final,
-                    **split_info,
-                    **{f'Flujo {k} Masa': v.masa for k, v in flujos.items()},
-                    **{f'Flujo {k} Cut': v.cut for k, v in flujos.items()},
-                }
-                resultados_mc.append(fila)
-                
+                    # Recopilar información de split factors para equipos objetivo
+                    split_info = {}
+                    for eq_name, eq in equipos.items():
+                        if eq.name in equipos_objetivo:
+                            split_info[f"{eq.name}_split_masa"] = eq.split_factor[0]
+                            split_info[f"{eq.name}_split_cuf"] = eq.split_factor[1]
+                    
+                    # Crear fila de resultados
+                    fila = {
+                        'MonteCarlo_Iter': sim_number,
+                        'Recuperacion': Recuperacion,
+                        'MassPull': MassPull,
+                        'RazonEnriquecimiento': RazonEnriquecimiento,
+                        'Ley_Conc_Final': Ley_Conc_Final,
+
+                        **split_info,
+                        **{f'Flujo {k} Masa': v.masa for k, v in flujos.items()},
+                        **{f'Flujo {k} Cut': v.cut for k, v in flujos.items()},
+                    }
+                    resultados_mc.append(fila)
+                    
             except Exception as e:
                 # Silenciar errores para no interrumpir el proceso
                 continue
@@ -344,6 +350,10 @@ def correr_simulacion_montecarlo(
         # Crear DataFrame con resultados de esta simulación
         df_resultados_mc = pd.DataFrame(resultados_mc)
         
+        cut_cols = [col for col in df_resultados_mc.columns if col.startswith('Flujo') and col.endswith('Cut')]
+        for col in cut_cols:
+            df_resultados_mc = df_resultados_mc[df_resultados_mc[col] < 36]
+
         # Aplicar filtros por Ley_Conc_Final si se especificaron
         if ley_conc_final_min is not None:
             df_resultados_mc = df_resultados_mc[df_resultados_mc['Ley_Conc_Final'] >= ley_conc_final_min]
@@ -387,9 +397,9 @@ def main():
     
     # Configuración
     archivo_base = '../Simulacion_caso_base.xlsx'
-    semilla = {4: {'masa': 24.515, 'cut': 2.40}}
+    semilla = {4: {'masa': 23.84, 'cut': 2.5167}}
     equipos_a_cambiar = ["Jameson 1"]
-    ley_min = 12
+    ley_min = 10
     ley_max = 26
     n_sim_mc = 10000
     
@@ -499,10 +509,10 @@ if __name__ == "__main__":
 # Crear gráficas para las 3 simulaciones: Día, Noche, Promedio
 # Cada simulación tendrá 2 subplots: Split Masa vs Split CuF, y Nube MC + Test de Dilución
 #%%
-# Definir las hojas a procesar (en orden: Día, Noche, Promedio)
-hojas_mc = ["Sim MC Dia", "Sim MC Noche", "Sim MC Promedio"]
-hojas_normal = ["Sim Dia", "Sim Noche", "Sim Promedio"]
-turnos = ["Día", "Noche", "Promedio"]
+# Definir las hojas a procesar (en orden: Día, Noche)
+hojas_mc = ["Sim MC Dia", "Sim MC Noche"]
+hojas_normal = ["Sim Dia", "Sim Noche"]
+turnos = ["Día", "Noche"]
 
 # Cargar datos de Monte Carlo para cada hoja
 dict_sims_mc_por_turno = {}
@@ -540,9 +550,9 @@ if n_simulaciones > 0:
 
     # Datos "pilotaje", se usará para comparar
     data = {
-        'Rec Cuf': [94.53,  95.20,  94.43],
-        'Rec Masa': [22.94 , 14.46, 18.22],
-        'Turno': ['Día', 'Noche', 'Promedio']
+        'Rec Cuf': [94.56,  95.31],
+        'Rec Masa': [22.26 , 14.46],
+        'Turno': ['Día', 'Noche']
     }
     df_pilotaje = pd.DataFrame(data)
 
@@ -554,53 +564,261 @@ if n_simulaciones > 0:
     df_test_id5_entero['Recuperación, Cu%'] = df_test_id5_entero['Recuperación, Cu%'].round().astype(int)
     df_test_id5_entero['Ley acumulada, Cu%'] = df_test_id5_entero['Ley acumulada, Cu%'].round().astype(int)
 
-    # Definir colores y marcadores
-    colores = {'Día': 'orange', 'Noche': 'blue', 'Promedio': 'green'}
-    marcadores = {'Día': 'D', 'Noche': 'D', 'Promedio': 'D'}
+    # Definir colores y marcadores (solo Día y Noche)
+    colores = {'Día': 'orange', 'Noche': 'blue'}
+    marcadores = {'Día': 'D', 'Noche': 'D'}
 
-    # --- SUBPLOTS ---
-    # Crear subplots: 3 filas (Día, Noche, Promedio) x 2 columnas (Split, Nube+Test)
-    ncols = 2
-    nrows = 3  # Siempre 3 filas para Día, Noche, Promedio
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(17, 6 * nrows))
-    
-    # Para cada turno (Día, Noche, Promedio)
-    for idx_turno, turno in enumerate(turnos):
-        # Obtener los ejes para esta fila
-        ax0 = axes[idx_turno, 0]  # Subplot izquierdo: Split Masa vs Split CuF
-        ax1 = axes[idx_turno, 1]  # Subplot derecho: Nube MC + Test de Dilución
-        
-        # Obtener datos MC para este turno
-        dict_sims_mc_turno = dict_sims_mc_por_turno.get(turno, {})
-        
-        if not dict_sims_mc_turno:
-            # Si no hay datos MC para este turno, mostrar mensaje
-            ax0.text(0.5, 0.5, f"No hay datos MC para {turno}", ha='center', va='center', transform=ax0.transAxes)
-            ax0.axis('off')
-            ax1.text(0.5, 0.5, f"No hay datos MC para {turno}", ha='center', va='center', transform=ax1.transAxes)
-            ax1.axis('off')
-            continue
-        
-        # Obtener el primer DataFrame de MC para este turno
-        sim_id = list(dict_sims_mc_turno.keys())[0]
-        df_mc = dict_sims_mc_turno[sim_id].copy()
-        
-        # Obtener datos de simulación normal para este turno
-        df_resultados_turno = dict_resultados_normal_por_turno.get(turno)
-        
-        # Calcular er_jameson_1 si es necesario (para ambos subplots)
-        if "Jameson 1_split_masa" in df_mc.columns and "Jameson 1_split_cuf" in df_mc.columns:
-            df_mc["er_jameson_1"] = df_mc["Jameson 1_split_cuf"] / df_mc["Jameson 1_split_masa"]
-        
-        # --- SUBPLOT 1: Split Masa vs Split CuF de Jameson 1 ---
-        if "Jameson 1_split_masa" in df_mc.columns and "Jameson 1_split_cuf" in df_mc.columns:
-            # Filtrar solo para este subplot
-            df_mc_filtrado = df_mc[(df_mc["er_jameson_1"] >= 6) & (df_mc["er_jameson_1"] <= 11)].copy()
-            
-            if not df_mc_filtrado.empty:
+    ##############
+    # 1. Grafica SOLO test de dilucion id 5
+    ##############
+    plt.figure(figsize=(8,6))
+    sns.lineplot(
+        x='Recuperación, Cu%',
+        y='Ley acumulada, Cu%',
+        data=df_test_id5_entero,
+        color='royalblue',
+        alpha=1,
+        marker='D',
+        markersize=8,
+        linestyle='--',
+        linewidth=2,
+        label=f"Test de Dilución Ley Alimentación = {float(round(df_test_id5['Ley Cu'].iloc[0],2)) if not df_test_id5.empty else ''}",
+        zorder=10,
+    )
+    plt.xlabel('Recuperación (%)')
+    plt.ylabel('Ley de Conc. Final (%)')
+    plt.title('Test de Dilución Ley Alimentación = 2.25% Cu')
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    ##############
+    # 2. Graficar datos de pilotaje (Día y Noche) + puntos de Simulación 1, 2, 3 (si existen)
+    ##############
+    plt.figure(figsize=(8,6))
+
+    # Agregar la línea del test de dilución primero (atrás del resto)
+    sns.lineplot(
+        x='Recuperación, Cu%',
+        y='Ley acumulada, Cu%',
+        data=df_test_id5_entero,
+        color='royalblue',
+        alpha=1,
+        marker='D',
+        markersize=8,
+        linestyle='--',
+        linewidth=2,
+        label=f"Test de Dilución Ley Alimentación = {float(round(df_test_id5['Ley Cu'].iloc[0],2)) if not df_test_id5.empty else ''}",
+        zorder=10,
+    )
+
+    # Puntos de Simulación 1, 2, 3 (para cada turno si existen) - deben ir SOBRE los de pilotaje
+    colores_sim_turno = {'Día': 'orange', 'Noche': 'blue'}
+    marcadores_sim = {1: "o", 2: "s", 3: "v"}
+    sim_labels = {1: "Simulación 1", 2: "Simulación 2", 3: "Simulación Pilotaje"}
+
+    # Guardar cada punto para evitar duplicados en la leyenda
+    handles_for_legend = []
+    labels_for_legend = []
+
+    for turno in turnos:
+        df_result = dict_resultados_normal_por_turno.get(turno)
+        if df_result is not None and not df_result.empty:
+            for sim_number in [1,2,3]:
+                df_sim = df_result[df_result['Simulacion']==sim_number]
+                if not df_sim.empty:
+                    x = df_sim.iloc[0]['Recuperacion']
+                    y = df_sim.iloc[0]['Ley_Conc_Final']
+                    sc = plt.scatter(
+                        x, y,
+                        color=colores_sim_turno.get(turno, "gray"),
+                        marker=marcadores_sim.get(sim_number, "o"),
+                        s=120,
+                        edgecolor='black',
+                        linewidth=1.8,
+                        zorder=16,  # Más arriba que pilotaje
+                        label=f"{sim_labels.get(sim_number,'Simulación')} ({turno})"
+                    )
+                    # Etiqueta a la derecha
+                    plt.annotate(f" {sim_number}",
+                                (x, y),
+                                textcoords="offset points",
+                                xytext=(12,0),
+                                ha='left',
+                                va='center',
+                                fontsize=10,
+                                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7)
+                                )
+                    handles_for_legend.append(sc)
+                    labels_for_legend.append(f"{sim_labels.get(sim_number,'Simulación')} ({turno})")
+
+    # Graficar puntos de pilotaje Día y Noche
+    pilot_labels = ['Día', 'Noche']
+    color_dia = 'orange'
+    color_noche = 'blue'
+    colores_pilot = {'Día': color_dia, 'Noche': color_noche}
+    marcadores_pilot = {'Día': 'D', 'Noche': 'D'}
+    for i, turno in enumerate(pilot_labels):
+        x_pilot = df_pilotaje.loc[i, 'Rec Cuf']
+        y_pilot = df_pilotaje.loc[i, 'Rec Masa']
+        sc = plt.scatter(
+            x_pilot, y_pilot,
+            color=colores_pilot[turno],
+            marker=marcadores_pilot[turno],
+            s=180,
+            edgecolor='black',
+            linewidth=2,
+            zorder=12,  # Debajo de los puntos de simulación
+            label=f"Pilotaje {turno}"
+        )
+        # Etiqueta a la izquierda
+        plt.annotate(f"{turno}",
+                    (x_pilot, y_pilot),
+                    textcoords="offset points",
+                    xytext=(-16,0),
+                    ha='right',
+                    va='center',
+                    fontsize=12,
+                    fontweight='bold',
+                    color=colores_pilot[turno])
+        handles_for_legend.append(sc)
+        labels_for_legend.append(f"Pilotaje {turno}")
+
+    plt.xlabel('Recuperación (%)')
+    plt.ylabel('Ley de Conc. Final (%)')
+    plt.title('Pilotaje Día/Noche + Simulaciones 1, 2, 3 + Test de Dilución')
+    plt.grid(True, linestyle='--', alpha=0.6)
+
+    # Filtrar duplicados en las etiquetas de la leyenda manteniendo la preferencia por los primeros
+    from collections import OrderedDict
+    legend_dict = OrderedDict()
+    # Primero los puntos de simulación, luego los puntos de pilotaje, luego otros
+    for lbl, hdl in zip(labels_for_legend, handles_for_legend):
+        if lbl not in legend_dict:
+            legend_dict[lbl] = hdl
+    handles, labels = plt.gca().get_legend_handles_labels()
+    for h, l in zip(handles, labels):
+        if l not in legend_dict:
+            legend_dict[l] = h
+
+    plt.legend(legend_dict.values(), legend_dict.keys())
+    plt.tight_layout()
+    plt.show()
+
+    # Gráfico de solo los puntos de simulación 1, 2, 3 en colores de turno, con etiquetas a la derecha
+    for turno in turnos:
+        df_result = dict_resultados_normal_por_turno.get(turno)
+        if df_result is not None and not df_result.empty:
+            for sim_number in [1,2,3]:
+                df_sim = df_result[df_result['Simulacion']==sim_number]
+                if not df_sim.empty:
+                    x = int(round(df_sim.iloc[0]['Recuperacion']))
+                    y = int(round(df_sim.iloc[0]['Ley_Conc_Final']))
+                    plt.scatter(
+                        x, y,
+                        color=colores_sim_turno.get(turno, "gray"),
+                        marker=marcadores_sim.get(sim_number, "o"),
+                        s=120,
+                        edgecolor='black',
+                        linewidth=1.8,
+                        zorder=12,
+                        label=f"{sim_labels.get(sim_number,'Simulación')} ({turno})"
+                    )
+                    # Etiqueta a la derecha
+                    plt.annotate(f" {sim_number}",
+                                (x, y),
+                                textcoords="offset points",
+                                xytext=(12,0),
+                                ha='left',
+                                va='center',
+                                fontsize=10,
+                                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7)
+                                )
+    plt.xlabel('Recuperación (%)')
+    plt.ylabel('Ley de Conc. Final (%)')
+    plt.title('Test de Dilución (id=5) + Simulaciones 1, 2, 3')
+    plt.grid(True, linestyle='--', alpha=0.6)
+    handles, labels = plt.gca().get_legend_handles_labels()
+    from collections import OrderedDict
+    by_label = OrderedDict(zip(labels, handles))
+    plt.legend(by_label.values(), by_label.keys())
+    plt.tight_layout()
+    plt.show()
+
+    ##############
+    # 3. El gráfico original (Split vs Split y Nube MC+Test) POR TURNO
+    ##############
+
+    def plot_mc_and_split_per_turno(
+        dict_sims_mc_por_turno,
+        dict_resultados_normal_por_turno,
+        df_pilotaje,
+        colores,
+        marcadores,
+        df_test_id5,
+        df_test_id5_entero,
+        turnos,
+        er_min=6,
+        er_max=11,
+        fig_width=17,
+        fig_height_per_row=6,
+        jameson_1_split_masa_col="Jameson 1_split_masa",
+        jameson_1_split_cuf_col="Jameson 1_split_cuf"
+    ):
+        """
+        Genera los subplots Split vs Split y Nube MC + Test por turno.
+        Filtra er_jameson_1 una sola vez, y utiliza los mismos datos filtrados para ambos subplots.
+        La leyenda para 'Simulación Normal' aparece una sola vez como 'Simulación'.
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        import numpy as np
+
+        ncols = 2
+        nrows = len(turnos)
+        fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_width, fig_height_per_row * nrows))
+
+        if nrows == 1:
+            axes = axes[np.newaxis, :]  # Garantiza que axes se indexe por turno
+
+        for idx_turno, turno in enumerate(turnos):
+            # Ejes para turno
+            ax0 = axes[idx_turno, 0]
+            ax1 = axes[idx_turno, 1]
+
+            # Obtener datos MC
+            dict_sims_mc_turno = dict_sims_mc_por_turno.get(turno, {})
+
+            if not dict_sims_mc_turno:
+                ax0.text(0.5, 0.5, f"No hay datos MC para {turno}", ha='center', va='center', transform=ax0.transAxes)
+                ax0.axis('off')
+                ax1.text(0.5, 0.5, f"No hay datos MC para {turno}", ha='center', va='center', transform=ax1.transAxes)
+                ax1.axis('off')
+                continue
+
+            # Primer DataFrame de MC para este turno
+            sim_id = list(dict_sims_mc_turno.keys())[0]
+            df_mc = dict_sims_mc_turno[sim_id].copy()
+
+            # Calcular er_jameson_1 si es posible
+            if jameson_1_split_masa_col in df_mc.columns and jameson_1_split_cuf_col in df_mc.columns:
+                df_mc["er_jameson_1"] = df_mc[jameson_1_split_cuf_col] / df_mc[jameson_1_split_masa_col]
+            else:
+                df_mc["er_jameson_1"] = np.nan  # Para que la variable siempre exista
+
+            # Aplicar filtro ER UNA SOLA VEZ
+            use_er_filter = df_mc["er_jameson_1"].notnull().any()
+            if use_er_filter:
+                df_mc_er = df_mc[(df_mc["er_jameson_1"] >= er_min) & (df_mc["er_jameson_1"] <= er_max)].copy()
+            else:
+                df_mc_er = df_mc.copy()  # Si no puede filtrar, sigue con el original (vacío si corresponde)
+
+            # --- SUBPLOT 1: Split Masa vs Split CuF de Jameson 1 ---
+            if use_er_filter and not df_mc_er.empty:
                 im0 = ax0.scatter(
-                    df_mc_filtrado["Jameson 1_split_masa"], df_mc_filtrado["Jameson 1_split_cuf"],
-                    alpha=0.7, s=18, c=df_mc_filtrado["er_jameson_1"], cmap="RdYlBu"
+                    df_mc_er[jameson_1_split_masa_col], df_mc_er[jameson_1_split_cuf_col],
+                    alpha=0.7, s=18, c=df_mc_er["er_jameson_1"], cmap="RdYlBu"
                 )
                 ax0.set_xlabel("Split Masa Jameson 1", fontsize=11)
                 ax0.set_ylabel("Split CuF Jameson 1", fontsize=11)
@@ -608,114 +826,440 @@ if n_simulaciones > 0:
                 cbar0 = fig.colorbar(im0, ax=ax0)
                 cbar0.set_label("ER Jameson 1", fontsize=10)
                 ax0.grid(True, alpha=0.2)
+            elif not use_er_filter:
+                ax0.text(0.5, 0.5, "Faltan datos para graficar splits", ha='center', va='center', transform=ax0.transAxes)
+                ax0.axis('off')
             else:
                 ax0.text(0.5, 0.5, "No hay datos después del filtro ER", ha='center', va='center', transform=ax0.transAxes)
                 ax0.axis('off')
-        else:
-            ax0.text(0.5, 0.5, "Faltan datos para graficar splits", ha='center', va='center', transform=ax0.transAxes)
-            ax0.axis('off')
-        
-        # --- SUBPLOT 2: Nube MC y Test de Dilución ---
-        # Filtrar df_mc para el subplot 2 también (si tiene er_jameson_1)
-        df_mc_plot2 = df_mc.copy()
-        if "er_jameson_1" in df_mc_plot2.columns:
-            df_mc_plot2 = df_mc_plot2[(df_mc_plot2["er_jameson_1"] >= 6) & (df_mc_plot2["er_jameson_1"] <= 11)]
-        
-        # Nube de simulación MC
-        if "Recuperacion" in df_mc_plot2.columns and "Ley_Conc_Final" in df_mc_plot2.columns and not df_mc_plot2.empty:
-            sc1 = ax1.scatter(
-                df_mc_plot2['Recuperacion'],
-                df_mc_plot2['Ley_Conc_Final'],
-                c=df_mc_plot2['er_jameson_1'] if "er_jameson_1" in df_mc_plot2.columns else None,
-                cmap='RdYlBu',
-                alpha=1,
-                s=15,
-                label=f"Simulación Monte Carlo ({turno})"
-            )
-            if "er_jameson_1" in df_mc_plot2.columns:
-                cbar1 = fig.colorbar(sc1, ax=ax1, label="ER Jameson 1", pad=0.02)
-        
-        # Pilotaje: mostrar solo el punto correspondiente a este turno
-        df_grupo_pilotaje = df_pilotaje[df_pilotaje['Turno'] == turno]
-        if not df_grupo_pilotaje.empty:
-            ax1.scatter(
-                df_grupo_pilotaje['Rec Cuf'],
-                df_grupo_pilotaje['Rec Masa'],
-                color=colores[turno],
-                marker=marcadores[turno],
-                s=250 if turno == 'Promedio' else 150,
-                label=f"Pilotaje {turno}",
-                edgecolor='black',
-                linewidth=2,
-                zorder=5
-            )
-        
-        # Simulación normal (simpre) para este turno
-        if df_resultados_turno is not None and not df_resultados_turno.empty:
-            # Obtener la primera fila de resultados normales para este turno
-            for idx, row in df_resultados_turno.iterrows():
-                x = int(round(row['Recuperacion']))
-                y = int(round(row['Ley_Conc_Final']))
-                ax1.scatter(
-                    x, y,
-                    color=colores[turno],
-                    marker='*',
-                    s=350 if turno == 'Promedio' else 250,
-                    edgecolor='black',
-                    linewidth=1.5,
-                    label=f"Simulación Normal ({turno})",
-                    zorder=6
-                )
-                ax1.text(
-                    x,
-                    y + 0.5,
-                    f"Sim {row['Simulacion']}",
-                    fontsize=10,
-                    ha='center',
-                    va='bottom',
-                    fontweight='bold',
-                    color='black',
-                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='black', boxstyle='round,pad=0.3'),
-                    zorder=7
-                )
-        
-        # Resultados de test de dilución (misma gráfica)
-        sns.lineplot(
-            x='Recuperación, Cu%',
-            y='Ley acumulada, Cu%',
-            data=df_test_id5_entero,
-            color='royalblue',
-            alpha=1,
-            marker='D',
-            markersize=8,
-            linestyle='--',
-            linewidth=2,
-            label=f"Test de Dilución Ley Alimentación = {int(round(df_test_id5['Ley Cu'].iloc[0]))}",
-            zorder=10,
-            ax=ax1
-        )
-        
-        # Configurar ticks y etiquetas para subplot 2
-        x_start = max(0, 5 * int(np.floor(ax1.get_xlim()[0] / 5)))
-        x_end = 100
-        xticks = np.arange(x_start, x_end + 1, 5)
-        ax1.set_xticks(xticks)
-        ax1.set_xlim(x_start, x_end)
-        ylim = ax1.get_ylim()
-        y_start = 2 * int(np.floor(ylim[0] / 2))
-        y_end = 2 * int(np.ceil(ylim[1] / 2))
-        yticks = np.arange(y_start, y_end + 1, 2)
-        ax1.set_yticks(yticks)
-        ax1.set_ylim(y_start, y_end)
-        ax1.set_xlabel('Recuperación (%)', fontsize=11)
-        ax1.set_ylabel('Ley de Conc. Final (%)', fontsize=11)
-        ax1.set_title(f'Nube de Simulación y Test de Dilución - {turno}', fontsize=12)
-        ax1.grid(True, linestyle='--', alpha=0.6)
-        # Colocar leyenda fuera, a la derecha, centrada verticalmente
-        ax1.legend(bbox_to_anchor=(1.02, 0.5), loc='center left', fontsize=8, frameon=True)
 
-    plt.tight_layout(rect=[0, 0, 0.88, 1])  # Dejar más espacio a la derecha para leyenda y colorbar
-    plt.show()
-else:
-    print("No se pueden generar las gráficas: faltan datos de Monte Carlo")
-#%%
+            # --- SUBPLOT 2: Nube MC y Test de Dilución ---
+            # Nube de simulación MC
+            if "Recuperacion" in df_mc_er.columns and "Ley_Conc_Final" in df_mc_er.columns and not df_mc_er.empty:
+                sc1 = ax1.scatter(
+                    df_mc_er['Recuperacion'],
+                    df_mc_er['Ley_Conc_Final'],
+                    c=df_mc_er['er_jameson_1'] if use_er_filter else None,
+                    cmap='RdYlBu' if use_er_filter else None,
+                    alpha=1,
+                    s=15,
+                    label=f"Simulación Monte Carlo ({turno})"
+                )
+                if use_er_filter:
+                    cbar1 = fig.colorbar(sc1, ax=ax1, label="ER Jameson 1", pad=0.02)
+
+            # Pilotaje: mostrar solo el punto correspondiente a este turno
+            df_grupo_pilotaje = df_pilotaje[df_pilotaje['Turno'] == turno]
+            if not df_grupo_pilotaje.empty:
+                ax1.scatter(
+                    df_grupo_pilotaje['Rec Cuf'],
+                    df_grupo_pilotaje['Rec Masa'],
+                    color=colores[turno],
+                    marker=marcadores[turno],
+                    s=150,
+                    label=f"Pilotaje {turno}",
+                    edgecolor='black',
+                    linewidth=2,
+                    zorder=5
+                )
+
+            # Simulación normal para este turno
+            df_resultados_turno = dict_resultados_normal_por_turno.get(turno)
+            simulacion_normal_handle = None
+            label_added = False
+            if df_resultados_turno is not None and not df_resultados_turno.empty:
+                for idx, row in df_resultados_turno.iterrows():
+                    x = int(round(row['Recuperacion']))
+                    y = int(round(row['Ley_Conc_Final']))
+                    # Solo el primer punto lleva la etiqueta "Simulación", los siguientes quedan sin etiqueta
+                    label = "Simulación" if not label_added else None
+                    h = ax1.scatter(
+                        x, y,
+                        color=colores[turno],
+                        marker='*',
+                        s=150,
+                        edgecolor='black',
+                        linewidth=1.5,
+                        label=label,
+                        zorder=6
+                    )
+                    if not label_added:
+                        simulacion_normal_handle = h
+                        label_added = True
+                    ax1.text(
+                        x,
+                        y + 0.5,
+                        f"Sim {int(round(row['Simulacion']))}",
+                        fontsize=10,
+                        ha='center',
+                        va='bottom',
+                        fontweight='bold',
+                        color='black',
+                        zorder=7
+                    )
+
+            # Resultados de test de dilución (misma gráfica)
+            sns.lineplot(
+                x='Recuperación, Cu%',
+                y='Ley acumulada, Cu%',
+                data=df_test_id5_entero,
+                color='royalblue',
+                alpha=1,
+                marker='D',
+                markersize=8,
+                linestyle='--',
+                linewidth=2,
+                label=f"Test de Dilución Ley Alimentación = {float(round(df_test_id5['Ley Cu'].iloc[0],2))}",
+                zorder=10,
+                ax=ax1
+            )
+
+            # Configurar ticks y etiquetas para subplot 2
+            x_start = max(0, 5 * int(np.floor(ax1.get_xlim()[0] / 5)))
+            x_end = 100
+            xticks = np.arange(x_start, x_end + 1, 5)
+            ax1.set_xticks(xticks)
+            ax1.set_xlim(x_start, x_end)
+            ylim = ax1.get_ylim()
+            y_start = 2 * int(np.floor(ylim[0] / 2))
+            y_end = 2 * int(np.ceil(ylim[1] / 2))
+            yticks = np.arange(y_start, y_end + 1, 2)
+            ax1.set_yticks(yticks)
+            ax1.set_ylim(y_start, y_end)
+            ax1.set_xlabel('Recuperación (%)', fontsize=11)
+            ax1.set_ylabel('Ley de Conc. Final (%)', fontsize=11)
+            ax1.set_title(f'Nube de Simulación y Test de Dilución - {turno}', fontsize=12)
+            ax1.grid(True, linestyle='--', alpha=0.6)
+            # Colocar leyenda fuera, a la derecha, centrada verticalmente
+            handles, labels = ax1.get_legend_handles_labels()
+            seen = set()
+            new_handles = []
+            new_labels = []
+            for h, l in zip(handles, labels):
+                if l not in seen:
+                    new_handles.append(h)
+                    new_labels.append(l)
+                    seen.add(l)
+            ax1.legend(new_handles, new_labels, bbox_to_anchor=(1.1, 0.81), loc='center left', fontsize=12, frameon=True)
+
+        plt.tight_layout(rect=[0, 0, 1, 1])  # Dejar más espacio a la derecha
+        plt.show()
+
+    # Uso de la función
+    if dict_sims_mc_por_turno and dict_resultados_normal_por_turno:
+        plot_mc_and_split_per_turno(
+            dict_sims_mc_por_turno=dict_sims_mc_por_turno,
+            dict_resultados_normal_por_turno=dict_resultados_normal_por_turno,
+            df_pilotaje=df_pilotaje,
+            colores=colores,
+            marcadores=marcadores,
+            df_test_id5=df_test_id5,
+            df_test_id5_entero=df_test_id5_entero,
+            turnos=turnos,
+            er_min=6,
+            er_max=11
+        )
+    else:
+        print("No se pueden generar las gráficas: faltan datos de Monte Carlo")
+
+
+ ##############
+    # 4. El gráfico original (Split vs Split y Nube MC+Test) POR TURNO TOP 10 SIMULACIONES
+    ##############
+
+    def plot_top_simulaciones_by_ley_per_turno(
+        dict_sims_mc_por_turno,
+        dict_resultados_normal_por_turno,
+        df_pilotaje,
+        colores,
+        marcadores,
+        df_test_id5,
+        df_test_id5_entero,
+        turnos,
+        er_min=6,
+        er_max=11,
+        fig_width=17,
+        fig_height_per_row=6,
+        jameson_1_split_masa_col="Jameson 1_split_masa",
+        jameson_1_split_cuf_col="Jameson 1_split_cuf",
+        excel_filename='top10_simulaciones.xlsx'
+    ):
+        """
+        Genera los subplots Split vs Split y Nube MC + Test por turno.
+        Filtra er_jameson_1 una sola vez, y utiliza los mismos datos filtrados para ambos subplots.
+        Adicionalmente, identifica y destaca las top 10 simulaciones con mayor Ley_Conc_Final en el gráfico de la izquierda.
+        Devuelve un dataframe con estas simulaciones y guarda un excel.
+        Los puntos que no son top, se muestran poco visibles (gris y alpha muy bajo) para destacarlos menos.
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        import numpy as np
+        import pandas as pd
+
+        ncols = 2
+        nrows = len(turnos)
+        fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_width, fig_height_per_row * nrows))
+
+        # Para almacenar todas las top 10 de cada turno
+        lista_top10_df = []
+
+        # Color palette for the top 10
+        colores_top10 = sns.color_palette("tab10", 10)
+
+        if nrows == 1:
+            axes = axes[np.newaxis, :]  # Garantiza que axes se indexe por turno
+
+        for idx_turno, turno in enumerate(turnos):
+            # Ejes para turno
+            ax0 = axes[idx_turno, 0]
+            ax1 = axes[idx_turno, 1]
+
+            # Obtener datos MC
+            dict_sims_mc_turno = dict_sims_mc_por_turno.get(turno, {})
+
+            if not dict_sims_mc_turno:
+                ax0.text(0.5, 0.5, f"No hay datos MC para {turno}", ha='center', va='center', transform=ax0.transAxes)
+                ax0.axis('off')
+                ax1.text(0.5, 0.5, f"No hay datos MC para {turno}", ha='center', va='center', transform=ax1.transAxes)
+                ax1.axis('off')
+                continue
+
+            # Primer DataFrame de MC para este turno
+            sim_id = list(dict_sims_mc_turno.keys())[0]
+            df_mc = dict_sims_mc_turno[sim_id].copy()
+
+            # Calcular er_jameson_1 si es posible
+            if jameson_1_split_masa_col in df_mc.columns and jameson_1_split_cuf_col in df_mc.columns:
+                df_mc["er_jameson_1"] = df_mc[jameson_1_split_cuf_col] / df_mc[jameson_1_split_masa_col]
+            else:
+                df_mc["er_jameson_1"] = np.nan  # Para que la variable siempre exista
+
+            # Aplicar filtro ER UNA SOLA VEZ
+            use_er_filter = df_mc["er_jameson_1"].notnull().any()
+            if use_er_filter:
+                df_mc_er = df_mc[(df_mc["er_jameson_1"] >= er_min) & (df_mc["er_jameson_1"] <= er_max)].copy()
+            else:
+                df_mc_er = df_mc.copy()  # Si no puede filtrar, sigue con el original (vacío si corresponde)
+
+            # --- Encontrar Top 10 simulaciones con mayor Ley_Conc_Final ---
+            if "Ley_Conc_Final" in df_mc_er.columns and not df_mc_er.empty:
+                df_top10 = df_mc_er.nlargest(10, 'Ley_Conc_Final').copy()
+            else:
+                df_top10 = pd.DataFrame()
+
+            df_top10['Turno'] = turno
+            lista_top10_df.append(df_top10)
+
+            # Añadir ID a las top 10 para mostrar en el plot
+            if not df_top10.empty:
+                df_top10 = df_top10.reset_index(drop=True)
+                df_top10['Top10_ID'] = ['TOP{:02d}'.format(i+1) for i in range(len(df_top10))]
+                # Para identificar rápido quién pertenece al top10
+                mask_top10 = df_mc_er.index.isin(df_top10.index)
+            else:
+                # En caso de estar vacío, ningún top
+                mask_top10 = np.zeros(len(df_mc_er), dtype=bool)
+
+            # --- SUBPLOT 1: Split Masa vs Split CuF de Jameson 1, con TOP 10 destacado ---
+            if use_er_filter and not df_mc_er.empty:
+                # 1. Dibujar primero los puntos que NO son top10: color gris y alpha bajo
+                idx_nontop = ~mask_top10
+                if idx_nontop.any():
+                    ax0.scatter(
+                        df_mc_er.loc[idx_nontop, jameson_1_split_masa_col],
+                        df_mc_er.loc[idx_nontop, jameson_1_split_cuf_col],
+                        color="lightgray",
+                        alpha=1,
+                        s=18,
+                        marker='o',
+                        label=None
+                    )
+                # 2. Si desea también mostrar el mapa de color ER en el top10, lo podría hacer, aunque aquí destacamos coloreados
+                # 3. Ahora destacar TOP10 en color
+                if not df_top10.empty:
+                    for i, row in df_top10.iterrows():
+                        ax0.scatter(
+                            row[jameson_1_split_masa_col],
+                            row[jameson_1_split_cuf_col],
+                            color=colores_top10[i % 10],
+                            s=110,
+                            marker='o',
+                            edgecolor='black',
+                            linewidth=2,
+                            label=row['Top10_ID'] if i == 0 else None,  # Solo el primer TOP10 aparece en leyenda
+                            zorder=10
+                        )
+  
+                ax0.set_xlabel("Split Masa Jameson 1", fontsize=11)
+                ax0.set_ylabel("Split CuF Jameson 1", fontsize=11)
+                ax0.set_title(f"Jameson 1: Split Masa vs Split CuF\n(TOP10 color, resto gris; ER no visible) - {turno}", fontsize=12)
+                # No se hace colorbar porque los no-top son grises (no hay mapa de color)
+                ax0.grid(True, alpha=0.2)
+            elif not use_er_filter:
+                ax0.text(0.5, 0.5, "Faltan datos para graficar splits", ha='center', va='center', transform=ax0.transAxes)
+                ax0.axis('off')
+            else:
+                ax0.text(0.5, 0.5, "No hay datos después del filtro ER", ha='center', va='center', transform=ax0.transAxes)
+                ax0.axis('off')
+
+            # --- SUBPLOT 2: Nube MC y Test de Dilución ---
+            # Nube de simulación MC
+            if "Recuperacion" in df_mc_er.columns and "Ley_Conc_Final" in df_mc_er.columns and not df_mc_er.empty:
+                # 1. Dibujar los que NO son top en gris y apagado
+                idx_nontop2 = ~mask_top10
+                if idx_nontop2.any():
+                    ax1.scatter(
+                        df_mc_er.loc[idx_nontop2, 'Recuperacion'],
+                        df_mc_er.loc[idx_nontop2, 'Ley_Conc_Final'],
+                        color='lightgray',
+                        alpha=1,
+                        s=15,
+                        marker='o',
+                        label=None
+                    )
+                # 2. TOP10 destacados
+                if not df_top10.empty:
+                    for i, row in df_top10.iterrows():
+                        ax1.scatter(
+                            row['Recuperacion'],
+                            row['Ley_Conc_Final'],
+                            color=colores_top10[i % 10],
+                            s=110,
+                            marker='o',
+                            edgecolor='black',
+                            linewidth=2,
+                            label=row['Top10_ID'] if i == 0 else None,  # Solo el primer TOP10 aparece en leyenda
+                            zorder=10
+                        )
+
+                # No colorbar, ya que los no-top son grises y los top10 van en color
+                # (El usuario puede descomentar lo siguiente si quiere seguir mostrando ER de top10, pero por claridad: no)
+                # if use_er_filter:
+                #     cbar1 = fig.colorbar(sc1, ax=ax1, label="ER Jameson 1", pad=0.02)
+
+            # Pilotaje: mostrar solo el punto correspondiente a este turno
+            df_grupo_pilotaje = df_pilotaje[df_pilotaje['Turno'] == turno]
+            if not df_grupo_pilotaje.empty:
+                ax1.scatter(
+                    df_grupo_pilotaje['Rec Cuf'],
+                    df_grupo_pilotaje['Rec Masa'],
+                    color=colores[turno],
+                    marker=marcadores[turno],
+                    s=150,
+                    label=f"Pilotaje {turno}",
+                    edgecolor='black',
+                    linewidth=2,
+                    zorder=5
+                )
+
+            # Simulación normal para este turno
+            df_resultados_turno = dict_resultados_normal_por_turno.get(turno)
+            simulacion_normal_handle = None
+            label_added = False
+            if df_resultados_turno is not None and not df_resultados_turno.empty:
+                for idx, row in df_resultados_turno.iterrows():
+                    x = int(round(row['Recuperacion']))
+                    y = int(round(row['Ley_Conc_Final']))
+                    # Solo el primer punto lleva la etiqueta "Simulación", los siguientes quedan sin etiqueta
+                    label = "Simulación" if not label_added else None
+                    h = ax1.scatter(
+                        x, y,
+                        color=colores[turno],
+                        marker='*',
+                        s=150,
+                        edgecolor='black',
+                        linewidth=1.5,
+                        label=label,
+                        zorder=6
+                    )
+                    if not label_added:
+                        simulacion_normal_handle = h
+                        label_added = True
+                    ax1.text(
+                        x,
+                        y + 0.5,
+                        f"Sim {int(round(row['Simulacion']))}",
+                        fontsize=10,
+                        ha='center',
+                        va='bottom',
+                        fontweight='bold',
+                        color='black',
+                        zorder=7
+                    )
+
+            # Resultados de test de dilución (misma gráfica)
+            sns.lineplot(
+                x='Recuperación, Cu%',
+                y='Ley acumulada, Cu%',
+                data=df_test_id5_entero,
+                color='royalblue',
+                alpha=1,
+                marker='D',
+                markersize=8,
+                linestyle='--',
+                linewidth=2,
+                label=f"Test de Dilución Ley Alimentación = {float(round(df_test_id5['Ley Cu'].iloc[0],2))}",
+                zorder=10,
+                ax=ax1
+            )
+
+            # Configurar ticks y etiquetas para subplot 2
+            x_start = max(0, 5 * int(np.floor(ax1.get_xlim()[0] / 5)))
+            x_end = 100
+            xticks = np.arange(x_start, x_end + 1, 5)
+            ax1.set_xticks(xticks)
+            ax1.set_xlim(x_start, x_end)
+            ylim = ax1.get_ylim()
+            y_start = 2 * int(np.floor(ylim[0] / 2))
+            y_end = 2 * int(np.ceil(ylim[1] / 2))
+            yticks = np.arange(y_start, y_end + 1, 2)
+            ax1.set_yticks(yticks)
+            ax1.set_ylim(y_start, y_end)
+            ax1.set_xlabel('Recuperación (%)', fontsize=11)
+            ax1.set_ylabel('Ley de Conc. Final (%)', fontsize=11)
+            ax1.set_title(f'Nube de Simulación y Test de Dilución - {turno}', fontsize=12)
+            ax1.grid(True, linestyle='--', alpha=0.6)
+            # Colocar leyenda fuera, a la derecha, centrada verticalmente
+            handles, labels_ = ax1.get_legend_handles_labels()
+            # Quitar los labels de las top 10 (generalmente son los colores_top10 o similares)
+            # Solo mantener en la leyenda los que no sean top 10
+            # Normalmente, los labels de top 10 no tienen que mostrarse, suelen ser "Top 1", "Top 2", ..., etc. 
+            # Si quieres ser más exhaustivo, podrías filtrar por estos nombres; 
+            # pero aquí simplemente filtramos los labels vacíos o no repetidos sin incluir los de top 10.
+            top10_labels = [f"Top {i+1}" for i in range(10)]
+            new_handles = []
+            new_labels = []
+            seen = set()
+            for h, l in zip(handles, labels_):
+                # Quitar etiquetas de los top 10 de la leyenda
+                if l not in seen and l not in [None, ""] and l not in top10_labels:
+                    new_handles.append(h)
+                    new_labels.append(l)
+                    seen.add(l)
+            ax1.legend(new_handles, new_labels, bbox_to_anchor=(1.1, 0.81), loc='center left', fontsize=12, frameon=True)
+
+        plt.tight_layout(rect=[0, 0, 1, 1])  # Dejar más espacio a la derecha
+        plt.show()
+
+        # Concatenar y guardar todas las top 10 en un Excel
+        df_top10_total = pd.concat(lista_top10_df, axis=0, ignore_index=True)
+        df_top10_total.to_excel(excel_filename, index=False)
+        return df_top10_total
+
+    # Uso de la función
+    if dict_sims_mc_por_turno and dict_resultados_normal_por_turno:
+        df_top10 = plot_top_simulaciones_by_ley_per_turno(
+            dict_sims_mc_por_turno=dict_sims_mc_por_turno,
+            dict_resultados_normal_por_turno=dict_resultados_normal_por_turno,
+            df_pilotaje=df_pilotaje,
+            colores=colores,
+            marcadores=marcadores,
+            df_test_id5=df_test_id5,
+            df_test_id5_entero=df_test_id5_entero,
+            turnos=turnos,
+            er_min=6,
+            er_max=11,
+            excel_filename="top10_simulaciones.xlsx"
+        )
+    else:
+        print("No se pueden generar las gráficas: faltan datos de Monte Carlo")
